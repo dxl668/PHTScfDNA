@@ -4,7 +4,7 @@ The repository contains all the bash, R, and Rmd scripts necessary for data proc
 
 The code should be ran as follows: 
 
-# cfDNA Fragment Processing
+## cfDNA Fragment Processing
     (1) 01-filter_bam.sh & 01-filter_bam.R:
 		- This could have been done all in bash, but had a previous R script for filtering bam files using Rsamtools
     (2) 01.5-filter_bam.sh
@@ -16,7 +16,7 @@ The code should be ran as follows:
     (5) 03.5-frags_5mb.sh: Intersect with 5 Mb bins to get both fragment interval as well as bin intervals 
         - Note: When intersecting with 5Mb, fragments overlapping with two bins would be duplicated.
         - Resolved duplicates by comparing base pair overlap and filtering out duplicate with the smallest overlap
- # cfDNA Fragmentation Profile
+ ## cfDNA Fragmentation Profile
  
  	(1) 10-fragsGC.sh & 10-fragsGC.R
 		- GC correction of fragments including GC bias plots
@@ -27,7 +27,7 @@ The code should be ran as follows:
 	(4) 13-fragratio.Rmd
 		- Visualize fragment ratio, compare fragment length variability, 
  
- # cfDNA End Motif Profiling 
+ ## cfDNA End Motif Profiling 
     (1) 04-filter_bedpe.sh: 
         - Using awk, intersected/filtered fragments 
     (2) 05-end_motif_bed.sh:
@@ -44,7 +44,7 @@ The code should be ran as follows:
 	(7) 22-summarize-motif.Rmd
 		- Summarize and visualize mono- and di-nucleotide end motif profiles 
 	
- # Multivariable Logistic Regression
+ ## Multivariable Logistic Regression
     (1) 31-logit.RMD
 		- Multivariable logistic regression using fragment ratios from each nucleosome fraction
 		- AUROC analysis 
