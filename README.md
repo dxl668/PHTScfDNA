@@ -29,9 +29,9 @@ The code should be ran as follows:
  
  ## cfDNA End Motif Profiling 
 	(1) 04-filter_bedpe.sh: 
-       		- Using awk, intersected/filtered fragments 
+		- Using awk, intersected/filtered fragments 
 	(2) 05-end_motif_bed.sh:
-        	- For getfasta work, I needed to convert the bedpe file to create two separate bed files (read1, read2) with gc content of full fragment (needed for GC correction)
+		- For getfasta work, I needed to convert the bedpe file to create two separate bed files (read1, read2) with gc content of full fragment (needed for GC correction)
 	(3) 06-motif_fasta.sh
         	- Using bedtools getfasta, get the nucleoptide sequence of the 5' fragment end 
 	(4) 07-motif_merge.sh
