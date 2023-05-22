@@ -28,24 +28,24 @@ The code should be ran as follows:
 		- Visualize fragment ratio, compare fragment length variability, 
  
  ## cfDNA End Motif Profiling 
-   	(1) 04-filter_bedpe.sh: 
+	(1) 04-filter_bedpe.sh: 
        		- Using awk, intersected/filtered fragments 
-    	(2) 05-end_motif_bed.sh:
+	(2) 05-end_motif_bed.sh:
         	- For getfasta work, I needed to convert the bedpe file to create two separate bed files (read1, read2) with gc content of full fragment (needed for GC correction)
-    	(3) 06-motif_fasta.sh
+	(3) 06-motif_fasta.sh
         	- Using bedtools getfasta, get the nucleoptide sequence of the 5' fragment end 
-    	(4) 07-motif_merge.sh
+	(4) 07-motif_merge.sh
         	- Merge the separate bed files for read1/read2 into a single bed file
-    	(5) 20-motif_gc_correct.sh & 20-motif_gc_correct.R
+	(5) 20-motif_gc_correct.sh & 20-motif_gc_correct.R
         	- GC correction of fragments 
         	- Note: this is identical to the GC correction from 10-fragsGC.R
-    	(6) 21-combine_motif.sh & 21-combine_motif.R
+	(6) 21-combine_motif.sh & 21-combine_motif.R
 		- Create combined tibble of end motifs 
 	(7) 22-summarize-motif.Rmd
 		- Summarize and visualize mono- and di-nucleotide end motif profiles 
 	
  ## Multivariable Logistic Regression
-    	(1) 31-logit.RMD
+	(1) 31-logit.RMD
 		- Multivariable logistic regression using fragment ratios from each nucleosome fraction
 		- AUROC analysis 
 		
