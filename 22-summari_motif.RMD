@@ -1,0 +1,347 @@
+# Load library
+```{r libraries}
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(stringr)
+library(RColorBrewer)
+library(scales)
+library(viridis)
+```
+
+# Import End Motif RDS file
+```{r import_clean}
+
+#import end nmotif rds file 
+df.motif <- readRDS("data/cfdna_pipeline/21-combine_motif/endmotif_2bp_gc_summary.rds")
+
+#summarize counts as dataframe still stratified by gc-strata
+df.motif <- df.motif %>%
+  group_by(id, end_motif, frac) %>%
+  summarise(
+    count = sum(count), 
+    count.corrected = sum(count.corrected), 
+    frac.total = first(frac.total),
+    frac.total.corrected = first(frac.total.corrected)
+  )
+  
+#Import meta data
+meta <- read_csv("data/sample_reference_sorted230325.csv")
+meta <- dplyr::rename(meta, id = Legacy.Custom.ID) #rename to id
+
+#select specific meta data and cancer type
+meta <- meta %>% select(id, Cancer, pre_cancer, smn, Breast.Cancer, Thyroid.Cancer) 
+
+#replace NA with "No"
+meta <- meta %>%
+  mutate_at(vars(smn), ~replace_na(., "No"))
+
+#merge meta data with motif data
+summary.motif <- inner_join(meta, df.motif, by="id") 
+
+#create phenotype subgroups
+summary.motif <- summary.motif %>% 
+  mutate(
+    group = case_when(
+      Cancer == "Yes" & pre_cancer == "No" ~ "Post-Dx", 
+      Cancer == "Yes" & pre_cancer == "Yes" ~ "Pre-Dx",
+      Cancer == "No" & pre_cancer == "No" ~ "No Cancer"), 
+    group2 = case_when(
+      Cancer == "Yes" & smn == "Yes" ~ "SMN",
+      Cancer == "Yes" & smn == "No" ~ "PMN",
+      Cancer == "No" & smn == "No" ~ "No Cancer"), 
+    group3 = case_when(
+      id %in% c("CCF02224-01-001", "CCF07535-01-001", "CCF02986-01-001", "CCF06617-01-001") ~ "Pre-SMN",
+      id %in% c("CCF02583-01-001", "CCF02068-01-001", "CCF04317-01-001", "CCF07793-01-001", "CCF05875-02-001") ~ "Pre-PMN",
+      TRUE ~ group2
+    )
+  ) %>% 
+  mutate(
+    ca_type1 = case_when(
+      Cancer == "No" ~ "No Cancer",
+      Breast.Cancer == "Yes" & Thyroid.Cancer == "Yes" ~ "Both",
+      Breast.Cancer == "Yes" & Thyroid.Cancer == "No" ~ "Breast",
+      Breast.Cancer == "No" & Thyroid.Cancer == "Yes" ~ "Thyroid"
+    )
+  )
+
+# Rename levels in the group3 column 
+summary.motif <- summary.motif %>%
+  mutate(group3 = fct_recode(group3,
+                             "Post-PMN" = "PMN",
+                             "Post-SMN" = "SMN"))
+
+# Relocate columns 
+summary.motif <- summary.motif %>% 
+  relocate(Cancer, .after = id) %>% 
+  relocate(pre_cancer, .after = Cancer) %>%
+  relocate(group, .after = pre_cancer)  %>%
+  relocate(ca_type1, .after = group) %>%
+  relocate(group2, .after = group) %>%
+  relocate(group3, .after = group2)
+  ungroup()
+
+#Export as csv
+write.csv(summary.motif,"data/cfdna_pipeline/22-summarize_motif/22-endmotif_summary.csv", row.names = FALSE)
+```
+
+# Summarise Di-nucleotide End Motif Profiles by Cancer Subgroups 
+```{r create_df, echo = FALSE}
+
+summary.motif <- read.csv("data/cfdna_pipeline/22-summarize_motif/22-endmotif_summary.csv")
+
+#End Motif Profile by SMN status
+summary.motif.smn <- summary.motif %>% 
+  group_by(id, end_motif, group2) %>%
+  summarise(
+    count = sum(count), 
+    count.corrected = sum(count.corrected)
+  ) %>% ungroup() %>% 
+  group_by(id) %>% 
+  mutate(
+    total = sum(count),
+    total.corrected = sum(count.corrected),
+    freq = count / total, 
+    freq.corrected = count.corrected / total.corrected
+  ) %>%
+  mutate(
+    group2 = factor(group2, levels = c("SMN", "PMN", "No Cancer"))
+  )
+
+# Set the sample sizes for each group
+n_smn <- 26
+n_pmn <- 23
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+summary.motif.smn <- summary.motif.smn %>%
+  mutate(group2 = recode(group2,
+                         `SMN` = paste0("SMN (N = ", n_smn, ")"),
+                         `PMN` = paste0("PMN (N = ", n_pmn, ")"),
+                         `No Cancer` = paste0("No Cancer (N = ", n_no_cancer, ")")))
+
+#Reshape dataframe using pivot_longer
+summary.motif.smn.long <- summary.motif.smn %>%
+  pivot_longer(cols = c(freq, freq.corrected),
+               names_to = "type",
+               values_to = "value")
+
+
+#End Motif Profile by SMN Status and Draw Time 
+summary.motif.pre <- summary.motif %>% 
+  group_by(id, end_motif, group3) %>%
+  summarise(
+    count = sum(count), 
+    count.corrected = sum(count.corrected)
+  ) %>% ungroup() %>% 
+  group_by(id) %>% 
+  mutate(
+    total = sum(count),
+    total.corrected = sum(count.corrected),
+    freq = count / total, 
+    freq.corrected = count.corrected / total.corrected
+  ) %>%
+  mutate(group3 = factor(group3, levels = c("Pre-SMN", "Post-SMN", "Pre-PMN", "Post-PMN", "No Cancer")))
+
+
+#reshapelong 
+summary.motif.pre.long <- summary.motif.pre %>%
+  pivot_longer(cols = contains("freq"), 
+               names_to = "type", 
+               values_to = "value") 
+
+# Set the sample sizes for each group
+n_smn <- 4
+n_postsmn <- 22
+n_pmn <- 5
+n_postpmn <- 18
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+summary.motif.pre <- summary.motif.pre %>%
+  mutate(group3 = recode(group3,
+                         `Pre-SMN` = paste0("Pre-SMN (N = ", n_smn, ")"),
+                         `Pre-PMN` = paste0("Pre-PMN (N = ", n_pmn, ")"),
+                         `Post-SMN` = paste0("Post-SMN (N = ", n_postsmn, ")"),
+                         `Post-PMN` = paste0("Post-PMN (N = ", n_postpmn, ")"),
+                         `No Cancer` = paste0("No Cancer (N = ", n_no_cancer, ")")))
+```
+# Summarise Mono-nucleotide End Motif Profiles by Cancer Subgroups 
+```{r create_df_mono, echo = FALSE}
+
+#Mono motif by SMN status 
+summary.motif.smn.mono <- summary.motif.smn %>%
+  #obtain mono-nucleotide motifs 
+  mutate(mono_motif = str_extract(end_motif, "\\b[A-Z]{1}")) %>%
+  group_by(id, mono_motif, group2) %>%
+  summarise(
+    freq = sum(freq),
+    freq.corrected = sum(freq.corrected)
+  ) %>%
+  mutate(
+    group2 = factor(group2, levels = c("SMN", "PMN", "No Cancer"))
+  )
+
+#Reshape using pivot_longer 
+summary.motif.frac.long <- summary.motif.smn.mono %>%
+  pivot_longer(cols = contains("freq"), 
+               names_to = "type", 
+               values_to = "value") 
+
+#Mono motifs by SMN Status and Draw Time 
+summary.motif.mono.pre <- summary.motif.pre %>%
+ mutate(mono_motif = str_extract(end_motif, "\\b[A-Z]{1}")) %>%
+  group_by(id, mono_motif, group3) %>%
+  summarise(
+    mono_sum = sum(freq),
+    mono_sum.corrected = sum(freq.corrected)
+  )
+
+#Reshape using pivot_longer 
+summary.motif.mono.pre.long <- summary.motif.mono.pre %>%
+  pivot_longer(cols = contains("mono_sum"), 
+               names_to = "type", 
+               values_to = "value") 
+```
+# Box plot for Di-nucleotide End Motif by SMN Status 
+```{r bp_dismn, echo = FALSE}
+
+#Define comparison groups 
+my_comparisons <- list(c("SMN (N = 26)", "No Cancer (N = 50)"), c("PMN (N = 23)", "No Cancer (N = 50)"))
+
+#Set color palette 
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 16, 29)]
+show_col(viridis_palette)
+
+
+#Create box plot facetted by end-motif
+bp.smn <- ggplot(summary.motif.smn, aes(x = group2, y = freq.corrected, fill = group2)) + 
+  geom_boxplot() +
+  facet_grid(. ~ end_motif) + 
+  scale_fill_manual(name = "Group", values = custom_color) + # Use custom colors
+  labs(x = "Group", y = "End Motif Frequency") +
+  theme(axis.text.x = element_blank()) +
+  #stat_compare_means(aes(label = paste0("P=", ..p.format..)), label.y = 0.155, size = 2) + #add global p
+  stat_compare_means(comparisons = my_comparisons, aes(label = ..p.signif..), label.y = c(0.15, 0.143), size = 2.5)
+
+#Define image directory 
+imagedir="data/cfdna_pipeline/22-summarize_motif"
+
+#Create file path
+out.plot <- file.path(imagedir, "endmotif.2bp.smn.tiff")
+
+#Save as tiff
+ggsave(filename = out.plot, plot = bp, device = "tiff", dpi = 300, width = 8, height = 3)
+
+```
+
+# Box Plot for Di-nucleotide by SMN Status & Plasma Draw Time
+```{r bp_dipre, echo = FALSE}
+
+#Define comparison groups
+my_comparisons <- list(c("Pre-SMN (N = 4)", "No Cancer (N = 50)"), 
+                       c("Pre-SMN (N = 4)", "Post-SMN (N = 22)"))
+
+#Set color palette 
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 9, 16, 24, 29)]
+show_col(viridis_palette)
+
+#Create box plot facetted by end-motif
+bp.2bp.pre <- ggplot(summary.motif.pre, aes(x = group3, y = freq.corrected, fill = group3)) + 
+  geom_boxplot() +
+  facet_grid(. ~ end_motif) + 
+  scale_fill_manual(name = "Group", values = custom_color)+
+  labs(x = "Group", y = "End Motif Frequency") +
+  theme(axis.text.x = element_blank()) +
+  #stat_compare_means(aes(label = paste0("P=", ..p.format..)), label.y = 0.155, size = 2)+ #add global p
+  stat_compare_means(comparisons = my_comparisons, aes(label = ..p.signif..), label.y = c(0.145, 0.136), ,size = 2.5)
+
+
+#Define image directory 
+imagedir="data/cfdna_pipeline/22-summarize_motif"
+
+#Create file path
+out.plot <- file.path(imagedir, "endmotif.2bp.pre.tiff")
+
+#Save as tiff
+ggsave(filename = out.plot, plot = bp, device = "tiff", dpi = 300, width = 8, height = 3)
+```
+
+# Box Plot for Mono-nucleotide End Motif by SMN Status
+```{r bp_monosmn, echo = FALSE}
+
+#Define comparison groups
+my_comparisons <- list(c("SMN", "No Cancer"), c("SMN", "PMN"), c("PMN", "No Cancer"))
+
+#Set color palette 
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 16, 29)]
+show_col(viridis_palette)
+
+
+#Create box plot 
+bp.mono.smn <- ggplot(summary.motif.smn.mono, aes(x = group2, y = freq.corrected, fill = group2)) + 
+  geom_boxplot() +
+  scale_fill_manual(name = "Group", values = custom_color) + # Use custom colors
+  facet_grid(. ~ mono_motif) + 
+  labs(x = "Group", y = "End Motif Frequency") +
+  theme(axis.text.x = element_blank()) +
+  # stat_compare_means(aes(label = paste0("p=", ..p.format..)),
+  #                    label.x = 1.75, label.y = 0.4, size = 3) + #global p value
+  stat_compare_means(comparisons = my_comparisons, aes(label = ..p.format..), size = 2.5, label.y =c(0.37, 0.355, 0.345))
+
+#Combine mono- and di-nucleotide end motif plots together 
+p.smn.motif.combined <- ggarrange(bp.mono.smn, bp.smn, ncol = 1, nrow = 2, labels = c("A", "B"), common.legend = TRUE, legend = "bottom")
+
+
+#write for-loop to save files 
+imagedir="data/cfdna_pipeline/22-summarize_motif"
+
+#Define directory 
+out.plot <- file.path(imagedir, "endmotif_smn_monodi_combined.tiff")
+
+#Save as tiff
+ggsave(filename = out.plot, plot = p.smn.motif.combined, device = "tiff", dpi = 300, width = 8, height = 6)
+
+```
+
+# Box Plot for Mono-nucleotide End Motif by SMN Status & Plasma Draw Time 
+```{r bp_monosmn, echo = FALSE}
+
+#Define comparison groups
+my_comparisons <- list(c("Pre-SMN (N = 4)", "No Cancer (N = 50)"), 
+                       c("Post-SMN (N = 22)", "No Cancer (N = 50)"),
+                       c("Pre-SMN (N = 4)", "Post-SMN (N = 22)"))
+
+#Set Color palette
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 9, 16, 24, 29)]
+show_col(viridis_palette)
+
+#Create box plot
+bp1.mono.pre <- ggplot(summary.motif.mono.pre, aes(x = group3, y = mono_sum.corrected, fill = group3)) +
+  geom_boxplot() +
+  scale_fill_manual(name = "Group", values = custom_color)+
+  facet_grid(. ~ mono_motif) + 
+  labs(x = "Group", y = "End Motif Frequency") +
+  theme(axis.text.x = element_blank()) +
+  # stat_compare_means(aes(label = paste0("p=", ..p.format..)),
+  #                   label.x = 2.4, label.y = 0.4, size = 3) + #global p value
+  stat_compare_means(comparisons = my_comparisons, aes(label = ..p.format..), size = 2.5, label.y =c(0.37, 0.355, 0.34))
+
+
+#Combine both mono- and di-nucleotide plots 
+bp.pre.combined <- ggarrange(bp1.mono.pre, bp.2bp.pre, ncol = 1, nrow = 2, labels = c("A", "B"), common.legend = T, legend = "bottom")
+
+#write for-loop to save files 
+imagedir="data/cfdna_pipeline/22-summarize_motif"
+
+#Define directory
+out.plot <- file.path(imagedir, "endmotif_pre_monodi_combined.tiff")
+
+#save as tiff
+ggsave(filename = out.plot, plot = bp.pre.combined, device = "tiff", dpi = 300, width = 8, height = 6)
+```
+
