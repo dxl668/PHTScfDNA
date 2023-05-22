@@ -1,4 +1,4 @@
-# cfDNA Fragmentomics and Second Malignant Neoplasm Risk in Patients with PTEN Hamartoma Tumor Syndrome 
+# PHTScfDNA
 
 The repository contains all the bash, R, and Rmd scripts necessary for data processing, analysis, and visualization for each figure of the paper 
 
