@@ -15,7 +15,7 @@ motifdir <- options.args[1]
 outdir <- options.args[2]
 
 #get motif data 
-files <- list.files(motifdir, full.names=TRUE)
+files <- list.files(fragdir, full.names=TRUE)
 
 #read in files as list
 files.list <- lapply(files, readRDS)
