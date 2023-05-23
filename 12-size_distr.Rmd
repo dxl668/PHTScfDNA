@@ -1,0 +1,612 @@
+# Load Library 
+```{r library, echo = FALSE}
+library(tidyverse)
+library(tidyr)
+library(reshape2)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(ggpubr)
+library(stats)
+library(grid)
+library(rstatix)
+library(broom)
+library(scales)
+library(viridis)
+```
+# Import and Clean cfDNA Fragment/Bin Dataframe
+```{r fragment_size, echo=FALSE}
+
+#Read RDS with fragment/bin data
+bins5mb <- readRDS("data/cfdna_pipeline/11-combine_bin/binfrag_summary.rds")
+
+#load meta-data 
+meta <- read_csv("data/sample_reference_sorted230325.csv")
+meta <- dplyr::rename(meta, id = Legacy.Custom.ID) #rename to id
+
+
+#summarise counts for each sample for each cfDNA fragment size
+df.fr <- bins5mb %>%
+  group_by(id) %>% 
+  summarise(
+    across(counts_100:counts.corrected_638, sum) #Note: columns are out of order, but includes 100-650 bp
+  )
+
+#select specific meta data and cancer type
+meta <- meta %>% select(id, Cancer, pre_cancer, smn, Breast.Cancer, Thyroid.Cancer) 
+
+#replace NA with "No"
+meta <- meta %>%
+  mutate_at(vars(smn), ~replace_na(., "No"))
+
+#merge meta data with motif data
+df.fr <- inner_join(meta, df.fr, by="id") 
+
+#create phenotype subgroups
+df.fr <- df.fr %>% 
+  mutate(
+    group = case_when(
+      Cancer == "Yes" & pre_cancer == "No" ~ "Post-Dx", 
+      Cancer == "Yes" & pre_cancer == "Yes" ~ "Pre-Dx",
+      Cancer == "No" & pre_cancer == "No" ~ "No Cancer"), 
+    group2 = case_when(
+      Cancer == "Yes" & smn == "Yes" ~ "SMN",
+      Cancer == "Yes" & smn == "No" ~ "PMN",
+      Cancer == "No" & smn == "No" ~ "No Cancer"), 
+    group3 = case_when(
+      id %in% c("CCF02224-01-001", "CCF07535-01-001", "CCF02986-01-001", "CCF06617-01-001") ~ "Pre-SMN",
+      id %in% c("CCF02583-01-001", "CCF02068-01-001", "CCF04317-01-001", "CCF07793-01-001", "CCF05875-02-001") ~ "Pre-PMN",
+      TRUE ~ group2
+    )
+  ) %>% 
+  mutate(
+    ca_type1 = case_when(
+      Cancer == "No" ~ "No Cancer",
+      Breast.Cancer == "Yes" & Thyroid.Cancer == "Yes" ~ "Both",
+      Breast.Cancer == "Yes" & Thyroid.Cancer == "No" ~ "Breast",
+      Breast.Cancer == "No" & Thyroid.Cancer == "Yes" ~ "Thyroid"
+    )
+  )
+
+# Rename levels in the group3 column 
+df.fr <- df.fr %>%
+  mutate(group3 = fct_recode(group3,
+                             "Post-PMN" = "PMN",
+                             "Post-SMN" = "SMN"))
+# Relocate columns 
+df.fr <- df.fr %>% 
+  relocate(Cancer, .after = id) %>% 
+  relocate(pre_cancer, .after = Cancer) %>%
+  relocate(group, .after = pre_cancer)  %>%
+  relocate(ca_type1, .after = group) %>%
+  relocate(group2, .after = group) %>%
+  relocate(group3, .after = group2) %>% 
+  ungroup()
+
+```
+
+#Clean data for Fragment Distribution Analysis 
+```{r cleaning, echo = FALSE}
+
+#get uncorrected counts
+df.fr2 <- df.fr %>% 
+  select(matches("^id$|^Cancer$|^pre_cancer$|^group$|^group2$|^group3$|^Breast.Cancer$|^Thyroid.Cancer$|^counts_[0-9]+$"))
+
+#reshape dataframe 
+df.fr2 <- df.fr2 %>%
+  pivot_longer(cols = starts_with("counts_"), 
+               names_to = "frag_size",
+               values_to = "counts") %>% 
+  mutate(frag_size = as.numeric(str_remove(frag_size, "counts_")))
+
+#get corrected counts 
+df.fr2.corrected <- df.fr %>% 
+  select(matches("^id$|^Cancer$|^pre_cancer$|^group$|^group2$|^group3$|^Breast.Cancer$|^Thyroid.Cancer$|^counts\\.corrected_[0-9]+$"))
+
+#reshape dataframe 
+df.fr2.corrected <- df.fr2.corrected %>%
+  pivot_longer(cols = starts_with("counts.corrected_"), 
+               names_to = "frag_size",
+               values_to = "counts_corrected") %>% 
+  mutate(frag_size = as.numeric(str_remove(frag_size, "counts.corrected_")))
+
+#merge the two dataframes
+df.frags <- df.fr2 %>% 
+  full_join(df.fr2.corrected, 
+            by = c("id", "Cancer", "pre_cancer", "group", "group2", "group3", 
+                   "Breast.Cancer", "Thyroid.Cancer", "frag_size"))
+
+#calculate freq and total counts
+df.frags <- df.frags %>%
+  group_by(id) %>% 
+  mutate(
+    total.counts = sum(counts), 
+    total.counts.corrected = sum(counts_corrected),
+    freq = counts / total.counts,
+    freq.corrected = counts_corrected/total.counts.corrected
+  ) %>% ungroup() %>%
+  mutate(
+    frac = case_when(
+        frag_size >= 100 & frag_size <=250 ~ "mono", 
+        frag_size >= 251 & frag_size <=450 ~ "di", 
+        frag_size >= 451 & frag_size <=650 ~ "tri"
+  )) %>% 
+  relocate(frac, .before = frag_size)
+
+#Save as csv
+write.csv(df.frags, "data/cfdna_pipeline/12-fraglength_analysis/12-fraglength_summary_230323.csv", row.names = FALSE)
+```
+
+# Functions (KS test)
+```{r functions, echo = FALSE}
+
+# Define the function to perform pairwise ks tests
+ks_test <- function(data, variable_name) {
+  # Get the list of groups
+  groups <- unique(data$group)
+  
+  # Generate all pairs of groups
+  pairs <- combn(groups, 2, simplify = FALSE)
+  
+  # Perform the KS test for each pair
+  results <- lapply(pairs, function(pair) {
+    group1_data <- data$value[data$group == pair[1]]
+    group2_data <- data$value[data$group == pair[2]]
+    ks_result <- ks.test(group1_data, group2_data)
+    
+    # Return a data frame with the test result and the groups compared
+    data.frame(
+      variable = variable_name,
+      group1 = pair[1],
+      group2 = pair[2],
+      statistic = ks_result$statistic,
+      p.value = ks_result$p.value
+    )
+  })
+  
+  # Combine the results into a single data frame
+  do.call(rbind, results)
+}
+
+```
+
+# Fragment Distributions by Cancer Subgroups
+```{r frag_dist, echo = FALSE}
+
+#df for median fragment size freq by cancer status 
+df.frags.ca <- df.frags %>% ungroup() %>% 
+  group_by(Cancer, frag_size) %>%
+  summarise(
+    median.freq = median(freq),
+    median.freq.correct = median(freq.corrected)
+  ) %>% 
+  mutate(
+    frac = case_when(
+        frag_size >= 100 & frag_size <=250 ~ "Mononucleosome", 
+        frag_size >= 251 & frag_size <=450 ~ "Dinucleosome", 
+        frag_size >= 451 & frag_size <=650 ~ "Trinucleosome"
+  )) %>%
+  mutate(
+    frac = factor(frac, levels = c("Mononucleosome", "Dinucleosome", "Trinucleosome"))
+  )
+
+
+#df for median fragment size freq by SMN status 
+df.frags.smn <- df.frags %>% ungroup() %>%
+  group_by(group2, frag_size) %>%
+  summarise(
+    median.freq = median(freq),
+    median.freq.correct = median(freq.corrected)
+  ) %>% 
+  mutate(
+    frac = case_when(
+        frag_size >= 100 & frag_size <=250 ~ "Mononucleosome", 
+        frag_size >= 251 & frag_size <=450 ~ "Dinucleosome", 
+        frag_size >= 451 & frag_size <=650 ~ "Trinucleosome"
+  )) %>%
+  mutate(
+    frac = factor(frac, levels = c("Mononucleosome", "Dinucleosome", "Trinucleosome")), 
+    group2 = factor(group2, levels = c("SMN", "PMN", "No Cancer"))
+  ) 
+
+#df for median fragment size freq by SMN Status & Plasma Draw Time 
+df.frags.pre <- df.frags %>% ungroup() %>%
+  group_by(group3, frag_size) %>%
+  summarise(
+    median.freq = median(freq),
+    median.freq.correct = median(freq.corrected)
+  ) %>% 
+  mutate(
+    frac = case_when(
+        frag_size >= 100 & frag_size <=250 ~ "Mononucleosome", 
+        frag_size >= 251 & frag_size <=450 ~ "Dinucleosome", 
+        frag_size >= 451 & frag_size <=650 ~ "Trinucleosome"
+  )) %>%
+  mutate(
+    frac = factor(frac, levels = c("Mononucleosome", "Dinucleosome", "Trinucleosome")), 
+    group3 = factor(group3, levels = c("Pre-SMN", "Post-SMN", "Pre-PMN", "Post-PMN", "No Cancer"))
+  ) 
+```
+
+# cfDNA Fragment Size Distribution for Cancer/No Cancer
+```{r fig_size_ca, echo = FALSE}
+
+# Set the sample sizes for each cancer/no cancer group
+n_cancer <- 49
+n_no_cancer <- 50
+
+#set color palette 
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 29)]
+show_col(viridis_palette)
+
+#plot distribution for each nucleosome fraction
+p1.dist <- df.frags.ca %>%
+  group_by(frac) %>% 
+  group_map(~{
+    p <- ggplot(.) + 
+            aes(x = frag_size, y = median.freq.correct, color = Cancer) +
+            scale_color_manual(name = "Group",
+                                 labels = c(paste0("Cancer (N = ", n_cancer, ")"),
+                                            paste0("No Cancer (N = ", n_no_cancer, ")")), values = custom_color) +
+            geom_line(size = 0.75) + 
+            labs(x = "Fragment size (bp)", y = "Frequency", title = .y[[1]]) + 
+            theme(axis.title.x = element_text(size = 10),
+                  axis.title.y = element_text(size = 10),
+                  plot.title = element_text(size = 10))
+    
+    if (.y[[1]] == "Dinucleosome") { #added to make y-axis consistent with other figures
+      p <- p + scale_y_continuous(breaks = seq(0.0004, 0.0016, by = 0.0004), 
+                                  labels = function(x) ifelse(x == 0, '', format(x, scientific = FALSE)),
+                                  limits = c(0, 0.001625),  # extend the y-axis limits
+                                  expand = c(0,0))  # remove default expansion
+    }
+    
+    p
+  })
+
+
+
+#arrange plots in grid
+p1.dist.ca.combined <- ggarrange(p1.dist[[1]], p1.dist[[2]], p1.dist[[3]], 
+                             ncol = 3, nrow = 1, labels = c("A", "B", "C"), common.legend = TRUE, legend = "right")
+
+```
+
+# cfDNA Fragment Size Distribution by SMN Status 
+```{r fig_size_ca, echo = FALSE}
+
+# Set the sample sizes for each group
+n_smn <- 26
+n_pmn <- 23
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+df.frags.smn <- df.frags.smn %>%
+  mutate(group2 = recode(group2,
+                         `SMN` = paste0("SMN (N = ", n_smn, ")"),
+                         `PMN` = paste0("PMN (N = ", n_pmn, ")"),
+                         `No Cancer` = paste0("No Cancer (N = ", n_no_cancer, ")")))
+
+#pick colors
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 16, 29)]
+show_col(viridis_palette)
+
+#plot distribution for each nucleosome fraction
+p1.dist.smn <- df.frags.smn %>%
+  group_by(frac) %>% 
+  group_map(~ggplot(.) + 
+            aes(x = frag_size, y = median.freq.correct, color = group2) +
+            geom_line(size = 0.75) + 
+            labs(x = "Fragment size (bp)", y = "Frequency", title = .y[[1]]) +
+            scale_color_manual(name = "Group",
+                               values = custom_color) +
+            theme(axis.title.x = element_text(size = 10),
+                  axis.title.y = element_text(size = 10),
+                  plot.title = element_text(size = 10)))
+
+#combine plots 
+p1.dist.smn.combined <- ggarrange(plotlist = p1.dist.smn, 
+                             ncol = 3, nrow = 1, labels = c("D", "E", "F"), common.legend = TRUE, legend = "right")
+
+```
+
+# cfDNA Fragment Size Distribution by SMN Status & Plasma Draw Time 
+```{r fig_size_ca, echo = FALSE}
+
+# Set the sample sizes for each group
+n_smn <- 4
+n_postsmn <- 22
+n_pmn <- 5
+n_postpmn <- 18
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+df.frags.pre <- df.frags.pre %>%
+  mutate(group3 = recode(group3,
+                         `Pre-SMN` = paste0("Pre-SMN (N = ", n_smn, ")"),
+                         `Pre-PMN` = paste0("Pre-PMN (N = ", n_pmn, ")"),
+                         `Post-SMN` = paste0("Post-SMN (N = ", n_postsmn, ")"),
+                         `Post-PMN` = paste0("Post-PMN (N = ", n_postpmn, ")"),
+                         `No Cancer` = paste0("No Cancer (N = ", n_no_cancer, ")")))
+
+#Set color palette 
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 9, 16, 24, 29)]
+show_col(viridis_palette)
+
+
+#plot distribution for each nucleosome fraction with modified line width and color
+p1.dist.pre <- df.frags.pre %>% 
+  group_by(frac) %>% 
+  group_map(~{
+    group3_numeric <- as.numeric(factor(.$group3))
+    ggplot(.) + 
+      aes(x = frag_size, y = median.freq.correct, color = group3) +
+      geom_line(size = 0.75) + 
+      labs(x = "Fragment size (bp)", y = "Frequency",  title = .y[[1]]) +
+      scale_color_manual(values = custom_color, name = "Group") +
+      guides(linetype = FALSE, size = FALSE) + 
+      theme(
+        axis.title.x = element_text(size = 10),
+        axis.title.y = element_text(size = 10),
+        plot.title = element_text(size = 10))
+  })
+
+#arrange plots in grid
+p1.dist.pre.combined <- ggarrange(plotlist = p1.dist.pre, ncol = 3, nrow = 1, labels = c("G", "H", "I"), common.legend = TRUE, legend = "right")
+
+
+#combine all distirbution plots
+p1.dist.combined <- ggarrange(p1.dist.ca.combined, p1.dist.smn.combined, p1.dist.pre.combined, ncol = 1, nrow = 3, common.legend = F, legend = "right")
+
+#create file path for figure
+out.plot <- file.path(imagedir, "Figure1_fragdist_combined.tiff")
+
+#save as tiff
+ggsave(filename = out.plot, plot = p1.dist.combined, device = "tiff", dpi = 300, width = 8, height = 9)
+```
+
+# Perform KS test - All Nucleomes
+```{r ks_test_all, echo = FALSE}
+
+#reshape data for cancer/vs no cancer
+df_long.ca <- df.frags.ca %>%
+  select(Cancer, median.freq.correct, median.freq, frac) %>%
+  pivot_longer(cols = c("median.freq.correct", "median.freq"), names_to = "variable", values_to = "value") %>%
+  rename(group = Cancer)
+ 
+ 
+# Group the data by the variable and split it into a list of data frames
+df_grouped.ca <- split(df_long.ca, df_long.ca$variable)
+
+# Apply the ks test to each group
+results.ca <- lapply(names(df_grouped.ca), function(name) ks_test(df_grouped.ca[[name]], name))
+
+
+# Combine the results into a single data frame
+df_results.ca <- do.call(rbind, results.ca)
+
+#SMN status
+df_long.smn <- df.frags.smn %>%
+  select(group2, median.freq.correct, median.freq, frac) %>%
+  pivot_longer(cols = c("median.freq.correct", "median.freq"), names_to = "variable", values_to = "value") %>%
+  rename(group = group2)
+
+
+# Group the data by the variable and split it into a list of data frames
+df_grouped.smn <- split(df_long.smn, df_long.smn$variable)
+
+# Apply the ks test to each group
+results.smn <- lapply(names(df_grouped.smn), function(name) ks_test(df_grouped.smn[[name]], name))
+
+# Combine the results into a single data frame
+df_results.smn <- do.call(rbind, results.smn)
+
+
+#Pre-Malignant status
+df_long.pre <- df.frags.pre %>%
+  select(group3, median.freq.correct, median.freq, frac) %>%
+  pivot_longer(cols = c("median.freq.correct", "median.freq"), names_to = "variable", values_to = "value")%>%
+  rename(group = group3)
+
+# Group the data by the variable and split it into a list of data frames
+df_grouped.pre <- split(df_long.pre, df_long.smn$variable)
+
+# Apply the ks test to each group
+results.pre <- lapply(names(df_grouped.pre), function(name) ks_test(df_grouped.pre[[name]], name))
+
+
+# Combine the results into a single data frame
+df_results.pre <- do.call(rbind, results.pre)
+
+#merge all
+df_results.merg <- rbind(df_results.ca, df_results.smn, df_results.pre)
+
+#remove rownames
+rownames(df_results.merg) <- NULL
+
+#merge and relocate
+df_results.merg <- df_results.merg %>% relocate(variable, .after = group2)
+
+#save to csv 
+write.csv(df_results.merg, "data/cfdna_pipeline/12-fraglength_analysis/12-kstest_overall_pairwise.csv", row.names = FALSE)
+
+```
+
+# Perform KS Test - Individual nucleosome fraction 
+```{r ks_test_frac, echo = FALSE}
+
+# Load the necessary library
+library(stringr)
+
+## Cancer status
+# Group the data by the variable and frac and split it into a list of data frames
+df_grouped.ca <- split(df_long.ca, list(df_long.ca$variable, df_long.ca$frac))
+
+# Apply the ks test to each group, passing the name of the variable and frac as an argument
+results.ca <- lapply(names(df_grouped.ca), function(name) ks_test(df_grouped.ca[[name]], name))
+
+# Combine the results into a single data frame and remove row names
+df_results.ca <- do.call(rbind, results.ca)
+
+# Split the 'variable' column
+df_results.ca <- df_results.ca %>%
+  mutate(frac = str_extract(variable, "\\.[^.]+$")) %>%  # Extract the string after the last dot
+  mutate(frac = str_remove(frac, "\\.")) %>%  # Remove the dot from the beginning of the frac
+  mutate(variable = str_remove(variable, "\\.[^.]+$")) %>%# Remove the frac part from the variable 
+  relocate(variable, .after = group2) %>%
+  relocate(frac, .after = variable)
+
+##SMN status
+# Group the data by the variable and frac and split it into a list of data frames
+df_grouped.smn <- split(df_long.smn, list(df_long.smn$variable, df_long.smn$frac))
+
+# Apply the ks test to each group, passing the name of the variable and frac as an argument
+results.smn <- lapply(names(df_grouped.smn), function(name) ks_test(df_grouped.smn[[name]], name))
+
+# Combine the results into a single data frame and remove row names
+df_results.smn <- do.call(rbind, results.smn)
+
+# Split the 'variable' column
+df_results.smn <- df_results.smn %>%
+  mutate(frac = str_extract(variable, "\\.[^.]+$")) %>%  # Extract the string after the last dot
+  mutate(frac = str_remove(frac, "\\.")) %>%  # Remove the dot from the beginning of the frac
+  mutate(variable = str_remove(variable, "\\.[^.]+$")) %>%# Remove the frac part from the variable 
+  relocate(variable, .after = group2) %>%
+  relocate(frac, .after = variable)
+
+## SMN Status & Plasma Draw Time 
+# Group the data by the variable and frac and split it into a list of data frames
+df_grouped.pre <- split(df_long.pre, list(df_long.pre$variable, df_long.pre$frac))
+
+# Apply the ks test to each group, passing the name of the variable and frac as an argument
+results.pre <- lapply(names(df_grouped.pre), function(name) ks_test(df_grouped.pre[[name]], name))
+
+# Combine the results into a single data frame and remove row names
+df_results.pre <- do.call(rbind, results.pre)
+
+# Split the 'variable' column
+df_results.pre <- df_results.pre %>%
+  mutate(frac = str_extract(variable, "\\.[^.]+$")) %>%  # Extract the string after the last dot
+  mutate(frac = str_remove(frac, "\\.")) %>%  # Remove the dot from the beginning of the frac
+  mutate(variable = str_remove(variable, "\\.[^.]+$")) %>%# Remove the frac part from the variable 
+  relocate(variable, .after = group2) %>%
+  relocate(frac, .after = variable)
+  
+#merge all
+df_results.merge <- rbind(df_results.ca, df_results.smn, df_results.pre)
+
+rownames(df_results.merge) <- NULL
+
+#save to csv 
+write.csv(df_results.merge, "data/cfdna_pipeline/12-fraglength_analysis/12-kstest_pernuc_pairwise.csv", row.names = FALSE)
+
+```
+# Summarize Major Peaks by Cancer Subgroups
+```{r summarize_majorpeak, echo = FALSE}
+
+# Reshape the dataframe
+df.frags_long <- df.frags %>%
+  pivot_longer(cols = c(freq, freq.corrected),
+               names_to = "type",
+               values_to = "value") %>%
+  select(id, Cancer, group2, group3, frag_size, frac, type, value) %>%
+  mutate(
+    frac = factor(frac, levels = c("mono", "di", "tri"))
+  )
+
+#get max fragment size and q25 and q75
+df.frags_summary <- df.frags_long %>%
+  group_by(id, Cancer, group2, group3, frac, type) %>%
+  summarise(max_frag_size = frag_size[which.max(value)],
+            q25_frag_size = quantile(frag_size, 0.25, na.rm = TRUE),
+            q75_frag_size = quantile(frag_size, 0.75, na.rm = TRUE)) %>%
+  ungroup()
+ 
+
+#summarize max fragment size for Cancer/No Cancer
+df.peak.ca <- df.frags_summary %>%
+  group_by(Cancer, frac, type) %>%
+  summarise(
+    max_peak = median(max_frag_size),
+    q25 = quantile(max_frag_size, 0.25), 
+    q75 = quantile(max_frag_size, 0.75)
+  ) %>%
+  rename(group = Cancer)
+
+#summarize max fragment size by SMN Status
+df.peak.smn <- df.frags_summary %>%
+  group_by(group2, frac, type) %>%
+  summarise(
+    max_peak = median(max_frag_size),
+    q25 = quantile(max_frag_size, 0.25), 
+    q75 = quantile(max_frag_size, 0.75)
+  ) %>%
+  rename(group = group2)
+
+#summarize max fragment size by SMN Status & Plasma Draw Time
+df.peak.pre <- df.frags_summary %>%
+  group_by(group3, frac, type) %>%
+  summarise(
+    max_peak = median(max_frag_size),
+    q25 = quantile(max_frag_size, 0.25), 
+    q75 = quantile(max_frag_size, 0.75)
+  ) %>% 
+  rename(group = group3)
+
+#merge
+df.peak.merge <- rbind(df.peak.ca, df.peak.smn, df.peak.pre)
+```
+
+# Statistical Test Comparing Major cfDNA peaks 
+```{r compare_majorpeaks, echo = FALSE}
+#KW test for overall group testing by SMN status
+overall.max.smn <- df.frags_summary %>%
+  group_by(frac, type) %>%
+  kruskal_test(max_frag_size ~ group2)
+
+#KW test for overall group testing by SMN Status & Plasma Draw Time 
+overall.max.pre <- df.frags_summary %>%
+  group_by(frac, type) %>%
+  kruskal_test(max_frag_size ~ group3)
+
+#merge overall results
+overall.merge <- rbind(overall.max.smn, overall.max.pre)
+
+#write to csv
+write.csv(overall.merge, "data/cfdna_pipeline/12-fraglength_analysis/12-maxpeak_overall_kwtest.csv", row.names =F) 
+
+
+#pairwise Wilcox Rank Sum Test by cancer/No Cancer
+peak.test <- df.frags_summary %>%
+  group_by(frac, type)%>%
+  wilcox_test(max_frag_size ~ Cancer) %>%
+  add_significance() %>%
+  select(-.y.)
+
+#pairwise Wilcox Rank Sum Test by SMN Status
+peak.test2<- df.frags_summary %>%
+  group_by(frac, type)%>%
+  wilcox_test(max_frag_size ~ group2) %>%
+  add_significance() %>%
+  select(-.y., -p.adj) %>%
+  rename(p.signif = p.adj.signif)
+
+#pairwise Wilcox Rank Sum Test by SMN Status & Plasma Draw Time 
+peak.test3<- df.frags_summary %>%
+  group_by(frac, type)%>%
+  wilcox_test(max_frag_size ~ group3) %>%
+  add_significance() %>%
+  select(-.y., -p.adj) %>%
+  rename(p.signif = p.adj.signif)
+
+#merge all for supplelmentary table 
+peak.merge <- rbind(peak.test, peak.test2, peak.test3)
+
+#write to csv
+write.csv(peak.merge, "data/cfdna_pipeline/12-fraglength_analysis/12-maxpeak_wilcox.csv", row.names =F) 
+
+
+```
