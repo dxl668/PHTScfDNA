@@ -25,7 +25,10 @@ The code should be ran as follows:
 	(3) 12-size_distr.Rmd 
 		- Perform cfDNA size distribution analysis and generate figure plots 
 	(4) 13-fragratio.Rmd
-		- Visualize fragment ratio, compare fragment length variability, 
+		- Visualize fragment ratio, compare fragment length variability
+  	(5) 14-mlg_loocv.RmD
+   		- Perform multivariable logistic regression and LOOCV
+     		- Note: CSV file with meta data and median fragment ratios in Zenodo repository called "14-mlg_loocv.csv"
  
  ## cfDNA End Motif Profiling 
 	(1) 04-filter_bedpe.sh: 
@@ -44,12 +47,7 @@ The code should be ran as follows:
 	(7) 22-end_motifs.Rmd
 		- Summarize and visualize 4-mer, 2-mer, and 1-mer end motifs
   		- Note: 4-mer and 2-mer end motifs were calculated separately by editing the value within the two awk statements in 05-end_motif_bed.sh. 1-mer end motifs were then calculated from the 2-mer end motif frequencies in this script. 
-	
- ## Multivariable Logistic Regression
-	(1) 31-logit.RMD
-		- Multivariable logistic regression using fragment ratios from each nucleosome fraction
-		- AUROC analysis 
-		
+
 
         
         
