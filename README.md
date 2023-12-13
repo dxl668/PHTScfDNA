@@ -41,8 +41,9 @@ The code should be ran as follows:
         	- Note: this is identical to the GC correction from 10-fragsGC.R
 	(6) 21-combine_motif.sh & 21-combine_motif.R
 		- Create combined tibble of end motifs 
-	(7) 22-summarize-motif.Rmd
-		- Summarize and visualize mono- and di-nucleotide end motif profiles 
+	(7) 22-end_motifs.Rmd
+		- Summarize and visualize 4-mer, 2-mer, and 1-mer end motifs
+  		- Note: 4-mer and 2-mer end motifs were calculated separately by editing the value within the two awk statements in 05-end_motif_bed.sh. 1-mer end motifs were then calculated from the 2-mer end motif frequencies in this script. 
 	
  ## Multivariable Logistic Regression
 	(1) 31-logit.RMD
