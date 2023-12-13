@@ -1,5 +1,4 @@
 # PHTScfDNA
-DOI: 10.5281/zenodo.10372575
 The repository contains all the bash, R, and Rmd scripts necessary for data processing, analysis, and visualization for each figure of the paper 
 
 The code should be ran as follows: 
