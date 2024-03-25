@@ -1,0 +1,223 @@
+# Load library
+```{r libraries}
+
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(stringr)
+library(RColorBrewer)
+library(scales)
+library(viridis)
+library(pheatmap)
+
+```
+
+# Import Data
+```{r import}
+
+# Import end motif and meta data  
+df.motif <- readRDS("protocol_ms/data/21-combine_motif/endmotif_4bp_gc_summary.rds")
+length(unique(df.motif$id))
+meta <- read.csv("protocol_ms/data/phtscfx_meta240304.csv")
+
+# Merge data 
+df.motif <- inner_join(meta, df.motif, by="id") 
+```
+
+# Summarize
+```{r summarize}
+
+# Calculate total count for each end motif  
+df.motif <- df.motif %>% 
+  group_by(id, end_motif, group2, group3, ca_1st, ca_2nd) %>%
+  summarise(
+    count = sum(count), 
+    count.corrected = sum(count.corrected)
+  ) %>% 
+  ungroup()
+
+# Calculate end motif frequency by SMN status 
+df.motif <- df.motif %>% 
+  group_by(id) %>% 
+  mutate(
+    total = sum(count),
+    total.corrected = sum(count.corrected),
+    freq = count / total, 
+    freq.corrected = count.corrected / total.corrected
+  ) %>%
+  mutate(
+    group2 = factor(group2, levels = c("SMN", "PMN", "No Cancer")),
+    group3 = factor(group3, levels = c("Pre-SMN", "Post-SMN", "Pre-PMN", "Post-PMN", "No Cancer"))
+  ) %>% 
+  ungroup() 
+
+length(unique(df.motif$id))
+
+#Save as csv
+write.csv(df.motif, "protocol_ms/data/22-motif_analysis/22-motif_analysis.4bp.csv", row.names = FALSE)
+```
+
+# Statistical analysis 
+```{r stat}
+# Read in merged data
+# df.motif <- read.csv("protocol_ms/data/22-motif_analysis/22-motif_analysis.4bp.csv")
+
+## Perform overall testing using KW 
+# By SMN status
+res.smn.kw <- df.motif %>%
+  group_by(end_motif) %>%
+  summarise(p.value = kruskal.test(freq.corrected ~ group2)$p.value) 
+
+# By SMN status and plasma draw time 
+res.pre.kw <- df.motif %>%
+  group_by(end_motif) %>%
+  summarise(p.value = kruskal.test(freq.corrected ~ group3)$p.value) 
+
+# Filter for only statistically significant
+sig.smn.4mer <- res.smn.kw %>% filter(p.value < 0.05)
+sig.pre.4mer <- res.pre.kw %>% filter(p.value < 0.05)
+
+## Post-hoc pairwise comparison 
+# By SMN status
+res.smn.wx <- df.motif %>%
+  filter(end_motif %in% sig.smn.4mer$end_motif) %>%
+  group_by(end_motif) %>%
+  wilcox_test(freq.corrected ~ group2) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance() %>%
+  #select(-.y.)%>%
+  arrange(p)
+
+# By SMN status and plasma draw time 
+res.pre.wx <- df.motif %>%
+  filter(end_motif %in% sig.pre.4mer$end_motif) %>%
+  group_by(end_motif) %>%
+  wilcox_test(freq.corrected ~ group3) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance() %>%
+  #select(-.y.)%>%
+  arrange(p)
+
+# Save files 
+write.csv(res.smn.kw, "protocol_ms/data/22-motif_analysis/res_smn_kw.csv")
+write.csv(res.pre.kw, "protocol_ms/data/22-motif_analysis/res_pre_kw.csv")
+write.csv(res.smn.wx, "protocol_ms/data/22-motif_analysis/res_smn_wx.csv")
+write.csv(res.pre.wx, "protocol_ms/data/22-motif_analysis/res_pre_wx.csv")
+```
+
+# Figure 4. Visualize Differentially Abundant 4-mer End Motifs 
+```{r pheatmap}
+# Combine the dataframes
+sig.4mer <- rbind(sig.pre.4mer, sig.smn.4mer)
+
+# Remove duplicates based on the end_motif column
+sig.4mer <- sig.4mer %>% select(end_motif) %>% distinct()
+
+# Subset significant 4-mer
+df.motif.sig <- df.motif %>% filter(end_motif %in% sig.4mer$end_motif)
+
+# Pivot the data to wide format
+df.motif.sig <- df.motif.sig %>%
+  select(id, end_motif, freq.corrected) %>%
+  pivot_wider(names_from = id, values_from = freq.corrected)
+
+# Convert to matrix 
+heatmap_matrix <- as.matrix(df.motif.sig[,-1])
+rownames(heatmap_matrix) <- df.motif.sig$end_motif
+
+# Create annotation dataframe for columns
+annotation_data <- df.motif %>%
+  select(id, group2, group3, ca_1st, ca_2nd) %>% 
+  mutate_at(vars(ca_1st, ca_2nd), ~replace_na(., "None")) %>% 
+  distinct() %>%
+  arrange(id) %>%
+  column_to_rownames("id") 
+
+
+# Color Palette using viridis
+viridis_palette <- viridis(30) #Define pallette
+show_col(viridis_palette) #Examine colors 
+colors <- viridis_palette[c(1, 9, 16, 24, 29)] #Select colors
+
+# Defgine color mapping for patient subgroups 
+group2_colors <- c("SMN" = colors[1], "PMN" = colors[3], "No Cancer" = colors[5])
+group3_colors <- c("Pre-SMN" = colors[1], "Post-SMN" = colors[2], 
+                   "Pre-PMN" = colors[3], "Post-PMN" = colors[4], 
+                   "No Cancer" = colors[5])
+
+# Define color mapping for cancer type 
+all_cancers <- unique(c(annotation_data$ca_1st, annotation_data$ca_2nd))
+cancer_colors <- brewer.pal(length(all_cancers), "Dark2")
+color_mapping <- setNames(cancer_colors, all_cancers)
+
+# Rename annotations labels
+names(annotation_data)[names(annotation_data) == "group2"] <- "SMN"
+names(annotation_data)[names(annotation_data) == "group3"] <- "Draw Time"
+names(annotation_data)[names(annotation_data) == "ca_1st"] <- "1st Ca."
+names(annotation_data)[names(annotation_data) == "ca_2nd"] <- "2nd Ca."
+
+# Define list of annotation category with color mapping
+annotation_colors <- list(
+    SMN = group2_colors,         # Changed 'group2' to 'SMN'
+    `Draw Time` = group3_colors, # Changed 'group3' to 'Draw Time'
+    `1st Ca.` = color_mapping,   # Changed 'ca_1st' to '1st Ca.'
+    `2nd Ca.` = color_mapping    # Changed 'ca_2nd' to '2nd Ca.'
+)
+
+# Generate heat map 
+p1 <- pheatmap(heatmap_matrix,
+         scale = "row",
+         cluster_rows = TRUE, 
+         cluster_cols = TRUE, 
+         show_rownames = TRUE, 
+         show_colnames = FALSE, 
+         border_color = NA, 
+         treeheight_row = 0, 
+         #treeheight_col = 0,
+         color = viridis::viridis(120, option = "magma"),
+         #height = 8,
+         #width = 8, 
+         annotation_col = annotation_data,
+         annotation_colors = annotation_colors)
+
+# Save heatmap 
+ggsave(filename = "protocol_ms/data/22-motif_analysis/end_motif4bp.tiff", plot = p1, device = "tiff", dpi = 300, width = 4, height = 8)
+```
+Figure 4. Boxplot 1-mer (or 2-mer) end motifs
+```{r n-mer end motif}
+
+# Define n-mer 
+n <- 1
+
+# Adjusting the data frame to calculate for the specified n-mer
+df.motif_nmer <- df.motif %>%
+  mutate(nmer_motif = str_extract(end_motif, sprintf("\\b[A-Z]{%d}", n))) %>% # Extracts the first n characters from 4-mer end_motifs
+  group_by(id, nmer_motif, group2) %>%
+  summarise(
+    freq = sum(freq), 
+    freq.corrected = sum(freq.corrected), 
+    .groups = 'drop' # Ensures the result is no longer grouped
+  )
+
+# Select color palette for patient subgroups 
+viridis_palette <- viridis(30)
+show_col(viridis_palette)
+custom_color <- viridis_palette[c(1, 16, 29)]
+
+library(ggpubr)
+
+# Define pairwise comparison groups
+my_comparisons <- list(c("SMN", "No Cancer"), c("PMN", "No Cancer"))
+
+# Generate boxplot
+bp.nmer <- ggplot(df.motif_nmer, aes(x = group2, y = freq.corrected, fill = group2)) +
+  geom_boxplot() +
+  scale_fill_manual(name = "Group", values = custom_color) + # Use custom colors
+  facet_grid(. ~ nmer_motif) + 
+  labs(x = "Group", y = "End Motif Frequency") +
+  theme(axis.text.x = element_blank()) +
+  stat_compare_means(comparisons = my_comparisons, aes(label = ..p.format..), size = 2.5, label.y =c(0.37, 0.355, 0.345)) # Adjust placement of p-value labels for readability
+
+# Save boxplot  
+ggsave(filename = "protocol_ms/data/22-motif_analysis/end_motif1bp.tiff", plot = bp.nmer, device = "tiff", dpi = 300, width = 6, height = 4)
+```
