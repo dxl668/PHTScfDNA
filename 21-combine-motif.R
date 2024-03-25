@@ -14,26 +14,23 @@ names(options.args) <- unlist(options.names)
 motifdir <- options.args[1]
 outdir <- options.args[2]
 
-#get motif data 
+# Get file names for end motif data
 files <- list.files(motifdir, full.names=TRUE)
+files.list <- lapply(files, readRDS) # Read RDS
 
-#read in files as list
-files.list <- lapply(files, readRDS)
-
-#get basename of files for file ids
+# Get sample ID
 id <- basename(files)
-id <- gsub("_2bpmotif_gc.rds", "", id)
+id <- gsub("_4bpmotif_gc.rds", "", id)
 
-#convert list into tibles and namewith sample ID
+# Combined tibble
 tib.list <- lapply(files.list, as_tibble)
 names(tib.list) <- id
 
-#combined tibble
 tib.list <- map2(tib.list, .y = names(tib.list), ~ mutate(.x, id = .y)) %>%
   bind_rows() %>% select(id, everything())
 
-#create rds file for output 
-out.file <- file.path(outdir, paste0("endmotif_2bp_gc_summary.rds"))
+# Output file 
+out.file <- file.path(outdir, paste0("endmotif_4bp_gc_summary.rds"))
   
-#save as RDS
+# Save as RDS
 saveRDS(tib.list, out.file)
