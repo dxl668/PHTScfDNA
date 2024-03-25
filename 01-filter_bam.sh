@@ -1,26 +1,34 @@
 #!/bin/bash
 
-#load R
-module load R
+# Define project directory
+PROJECT_DIR=/home/liud3/beegfs/cfDNA
+cd "$PROJECT_DIR"
 
-#Define working directoy
-CWD=/home/liud3/beegfs/cfDNA/data/cfdna_pipeline
-cd $CWD
+# Define/make input/output directories 
+bam_dir="${PROJECT_DIR}/data/files" #Aligned BAM files
+fbam_dir="${PROJECT_DIR}/protocol/01-filter_bam" #Filtered BAM files
+stat_dir="${PROJECT_DIR}/protocol/stat_reports" #Alignment statistics
+mkdir -p "$bam_dir" "$fbam_dir" "$stat_dir" #Create directories if they do not exist
 
-#Define directory for bam/bai files
-bamdir=/home/liud3/beegfs/cfDNA/data/files
+# Obtain file path for all BAM files 
+bam_files=$(find $bam_dir -maxdepth 1 -name '*.bam')
 
-#Make directory for output of 01-filter_bam.R script 
-fbam_dir=/home/liud3/beegfs/cfDNA/data/cfdna_pipeline/fbam_dir
+# Load samtools module
+module load samtools
 
-#Get file path for all bam and bai files
-bam_file=$(find $bamdir -maxdepth 1 -name '*.bam')
-bai_file=$(find $bamdir -maxdepth 1 -name '*.bai')
-echo $bam_file 
+# Iterate through each BAM file in directory
+for bam_file in $bam_files; do
+  fname=$(basename $bam_file)
+  out_file="${fbam_dir}/${fname%.bam}_f1.bam"
+  echo "Output file will be written to: $out_file"
 
-#Define id variable as basename .bam for input for Rscript 
-id=$(basename -a $bam_file) #add -a for multiple inputs  
+  # Use samtools view to apply filtering criteria 
+  samtools view -bh -f 2 -F 3844 -q 30 $bam_file $(seq 1 22)> $out_file
+  
+  # Summary statistics for the filtered BAM file
+  stat_file="${stat_dir}/${fname%.bam}_flagstat.txt"
+  echo "Generating stat report: $stat_file"
+  samtools flagstat $out_file > $stat_file
 
-#Run R script 
-Rscript 01-filter_bam.R --id $id --bamdir $bamdir --fbam_dir $fbam_dir
-echo Finished filtering original bam files!
+done
+echo "Finished filtering bam files"
