@@ -14,17 +14,6 @@ names(options.args) <- unlist(options.names)
 motifdir <- options.args[1]
 outdir <- options.args[2]
 
-
-#set working directory (for testing locally)
-#setwd("W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA/data")
-#motifdir <- "end_motif/extracted_seq"
-
-#for testing purposes
-#motifdir <- "/home/liud3/beegfs/cfDNA/data/end_motif/motif_summary"
-#motifdir <- "end_motif/motif_summary"
-
-#outdir <-"/home/liud3/beegfs/cfDNA/data/end_motif/combined_df"
-
 # Get file names for end motif data
 files <- list.files(motifdir, full.names=TRUE)
 files.list <- lapply(files, readRDS) # Read RDS
