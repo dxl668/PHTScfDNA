@@ -1,0 +1,307 @@
+---
+title: "Genome-wide Fragmentation Profiles"
+author: "Darren Liu"
+date: "2024-04-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA")
+
+```
+
+# Load library
+```{r libraries}
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(scales)
+library(viridis)
+library(rstatix)
+```
+
+# Import and Clean Data
+```{r import}
+
+# Import frag/bin and meta data  
+bins5mb <- readRDS("protocol_ms/data/11-combine_bin/binfrag_summary.rds")
+meta <- read.csv("protocol_ms/data/phtscfx_meta240304.csv")
+
+bins5mb <- bins5mb %>%
+  select(-bin) %>%
+  mutate(
+    chr_n = as.numeric(str_extract(chr, "\\d+"))
+  ) %>%
+  relocate(chr_n, .after = chr) %>%
+  group_by(id) %>%
+    arrange(id, chr_n) %>%
+  mutate(bin = 1:length(id)) %>%
+  relocate(bin, .after = id)
+
+# Select var and ratios 
+df.ratio <- bins5mb %>%
+  select(id, bin, chr, chr_n, arm, matches("ratio"))
+
+# Merge meta data
+df.ratio <- inner_join(meta, df.ratio, by="id") 
+
+# Save files
+write.csv(df.ratio, "protocol_ms/data/13-fragratio/13-fragratio_summary240404.csv", row.names = FALSE)
+saveRDS(df.ratio, "protocol_ms/data/13-fragratio/13-fragratio_summary.rds")
+```
+
+# Figure 2. Genome-wide Fragmentation Profiles by SMN Status 
+```{r ratio_smn}
+
+# Calculate median ratio per sample 
+summary.smn.bin <- df.ratio %>%
+  group_by(bin, chr_n, group2) %>%
+  summarise(ratio1 = median(ratio1),
+            ratio1.corrected = median(ratio1.corrected),
+            ratio2 = median(ratio2),
+            ratio2.corrected = median(ratio2.corrected),
+            ratio3 = median(ratio3),
+            ratio3.corrected = median(ratio3.corrected)) %>%
+  select(-ratio1, -ratio2, -ratio3) %>% # Removing non-GC corrected for figures
+  ungroup()
+
+# Rehsape
+summary.smn.bin.long <- summary.smn.bin %>%
+  pivot_longer(cols = contains("ratio"), 
+               names_to = "frac", 
+               values_to = "ratio") %>%
+  mutate(
+    frac = case_when(
+      frac == "ratio1.corrected" ~ "Mononucleosome",
+      frac == "ratio2.corrected" ~ "Dinucleosome",
+      frac == "ratio3.corrected" ~ "Trinucleosome"
+    )
+  ) %>% # Reorder factors
+  mutate(
+    frac = factor(frac, levels = c("Mononucleosome", "Dinucleosome", "Trinucleosome")),
+    group2 = factor(group2, levels = c("SMN", "PMN", "No Cancer"))) 
+
+# Sample size for labeling 
+n_smn <- 26
+n_pmn <- 23
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+summary.smn.bin.long <- summary.smn.bin.long %>%
+  mutate(group2 = recode(group2,
+                         `SMN` = paste0("SMN (n = ", n_smn, ")"),
+                         `PMN` = paste0("PMN (n = ", n_pmn, ")"),
+                         `No Cancer` = paste0("No Cancer (n = ", n_no_cancer, ")")))
+
+chr_width <- summary.smn.bin.long %>% group_by(chr_n) %>% summarise(n = n()/473) %>% select(n)
+chr_width <- unlist(chr_width)
+
+# Calculate the lower and upper bounds of each chromosome
+chr_bounds <- summary.smn.bin.long %>%
+  group_by(chr_n) %>%
+  summarise(min_bin = min(bin), max_bin = max(bin))
+
+# Calculate the minimum ratio value for each frac and multiply it by 0.9
+# For defining lower bound of horizontal line for chr labels
+min_ratios <- summary.smn.bin.long %>%
+  group_by(frac) %>%
+  summarise(min_ratio = min(ratio) * 0.9)
+
+# Select color palette
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 16, 29)]
+show_col(viridis_palette)
+
+title_size <- 10
+
+# Genome-wide frag. plot
+p.ratio.smn <- summary.smn.bin.long %>%
+  group_by(frac) %>% 
+  group_map(~ {
+    min_ratio <- min_ratios[min_ratios$frac == .y[[1]], "min_ratio"][[1]]
+    ggplot(.) + 
+      aes(x = bin, y = ratio, color = group2) +
+      geom_line(size = 0.5) + 
+      geom_segment(data = chr_bounds,
+                   aes(x = min_bin, xend = max_bin, y = min_ratio, yend = min_ratio), # Draw horizontal lines for each chr label
+                   linetype = "solid", color = "black", size = 0.5) +
+      labs(x = "Chromsome", y = "Fragment Ratio", title = .y[[1]]) +
+      scale_color_manual(name = "Group", values = custom_color)+
+      scale_y_continuous(labels = scales::number_format(accuracy = 0.001)) + # Set decimal place for y-axis
+      scale_x_continuous(breaks = with(., tapply(bin, chr_n, mean)), # Set breaks to mid-point of each chromosome 
+                         labels = paste0(unique(.$chr_n))) + # Set labels to chr numbers
+      theme(axis.text.x = element_text(size = 5), # Set font size of x-axis labels
+            axis.ticks.x = element_blank(), # Remove x-axis ticks
+            plot.title = element_text(size = title_size))
+  })
+
+# Combine plots
+p.ratio.smn.combined <- ggarrange(plotlist = p.ratio.smn, ncol = 1, nrow = 3, labels = c("A", "B", "C"), common.legend = TRUE, legend = "right")
+
+# Save as tiff
+imagedir="protocol_ms/data/13-fragratio"
+out.plot <- file.path(imagedir, "Figure2_fragratio_smn_240404.tiff")
+ggsave(filename = out.plot, plot = p.ratio.smn.combined, device = "tiff", dpi = 300, width = 8, height = 6)
+```
+# Figure 3. Genome-wide Fragmentation Profiles by SMN Status and Plamsm Draw time 
+```{r ratio_pre}
+
+# Calculate median ratio per sample 
+summary.pre.bin <- df.ratio %>% ungroup() %>% 
+  group_by(bin, chr_n, group3)%>%
+  summarise(ratio1 = median(ratio1),
+            ratio1.corrected = median(ratio1.corrected),
+            ratio2 = median(ratio2),
+            ratio2.corrected = median(ratio2.corrected),
+            ratio3 = median(ratio3),
+            ratio3.corrected = median(ratio3.corrected)) %>% 
+  select(-ratio1, -ratio2, -ratio3) %>% # Remove non-GC corrected for figure
+  ungroup() 
+
+# Rehsape
+summary.pre.bin.long <- summary.pre.bin %>%
+  pivot_longer(cols = contains("ratio"), 
+               names_to = "frac", 
+               values_to = "ratio") %>%
+  mutate(
+    frac = case_when(
+      frac == "ratio1.corrected" ~ "Mononucleosome",
+      frac == "ratio2.corrected" ~ "Dinucleosome",
+      frac == "ratio3.corrected" ~ "Trinucleosome"
+    )
+  ) %>% # Reorder factors
+  mutate(
+    frac = factor(frac, levels = c("Mononucleosome", "Dinucleosome", "Trinucleosome")), 
+    group3 = factor(group3, levels = c("Pre-SMN", "Post-SMN", "Pre-PMN", "Post-PMN", "No Cancer")))
+
+# Sample size for labeling 
+n_smn <- 4
+n_postsmn <- 22
+n_pmn <- 5
+n_postpmn <- 18
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+summary.pre.bin.long <- summary.pre.bin.long %>%
+  mutate(pre_status = recode(group3 ,
+                         `Pre-SMN` = paste0("Pre-SMN (n = ", n_smn, ")"),
+                         `Pre-PMN` = paste0("Pre-PMN (n = ", n_pmn, ")"),
+                         `Post-SMN` = paste0("Post-SMN (n = ", n_postsmn, ")"),
+                         `Post-PMN` = paste0("Post-PMN (n = ", n_postpmn, ")"),
+                         `No Cancer` = paste0("No Cancer (n = ", n_no_cancer, ")")))
+
+chr_width <- summary.pre.bin.long %>% group_by(chr_n) %>% summarise(n = n()/473) %>% select(n)
+chr_width <- unlist(chr_width)
+
+# Calculate the lower and upper bounds of each chromosome
+chr_bounds <- summary.pre.bin.long %>%
+  group_by(chr_n) %>%
+  summarise(min_bin = min(bin), max_bin = max(bin))
+
+# Calculate the minimum ratio value for each frac and multiply it by 0.9
+# For defining lower bound of horizontal line for chr labels
+min_ratios <- summary.pre.bin.long %>%
+  group_by(frac) %>%
+  summarise(min_ratio = min(ratio) * 0.9)
+
+# Select color palette
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 9, 16, 24, 29)]
+show_col(viridis_palette)
+
+
+title_size <- 10
+
+# Genome-wide frag. plot
+p.ratio.pre <- summary.pre.bin.long %>%
+  group_by(frac) %>% 
+  group_map(~ {
+    min_ratio <- min_ratios[min_ratios$frac == .y[[1]], "min_ratio"][[1]]
+    
+    ggplot(.) + 
+      aes(x = bin, y = ratio, color = group3) +
+      geom_line(size = 0.25) + 
+      geom_segment(data = chr_bounds,
+                   aes(x = min_bin, xend = max_bin, y = min_ratio, yend = min_ratio), # Draw horizontal lines for each chr label
+                   linetype = "solid", color = "black", size = 0.5) +
+      labs(x = "Chromosome", y = "Fragment Ratio", title = .y[[1]]) +
+      scale_color_manual(values = custom_color, name = "Group") +
+      guides(linetype = FALSE, size = FALSE) + 
+      scale_y_continuous(labels = scales::number_format(accuracy = 0.001)) + # Set decimal place for y-axis
+      scale_x_continuous(breaks = with(., tapply(bin, chr_n, mean)), # set breaks to mid-point of each chr 
+                         labels = paste0(unique(.$chr_n))) + # Set labels to chr numbers
+      theme(axis.text.x = element_text(size = 5), # Set font size of x-axis labels
+            axis.ticks.x = element_blank(), # Remove x-axis ticks
+            plot.title = element_text(size = title_size))
+  })
+
+
+# Combine plots
+p.ratio.pre.combined <- ggarrange(plotlist = p.ratio.pre, ncol = 1, nrow = 3, labels = c("A", "B", "C"), common.legend = TRUE, legend = "right")
+
+# Save as tiff
+imagedir="protocol_ms/data/13-fragratio"
+out.plot <- file.path(imagedir, "Figure3_fragratio_pre_240404.tiff")
+ggsave(filename = out.plot, plot = p.ratio.pre.combined, device = "tiff", dpi = 300, width = 8, height = 6)
+```
+
+# Supplemental - Genome-wide correlation analysis 
+```{r res_cor}
+
+# Scale fragmentation profiles  
+df.ratio <- df.ratio %>%
+  group_by(id) %>%
+  mutate(
+    ratio1.scale = scale(ratio1, center = TRUE, scale = TRUE),
+    ratio1.scale.corrected = scale(ratio1.corrected, center = TRUE, scale = TRUE),
+    ratio2.scale = scale(ratio2, center = TRUE, scale = TRUE),
+    ratio2.scale.corrected = scale(ratio2.corrected, center = TRUE, scale = TRUE),
+    ratio3.scale = scale(ratio3, center = TRUE, scale = TRUE),
+    ratio3.scale.corrected = scale(ratio3.corrected, center = TRUE, scale = TRUE),
+  ) %>%
+  ungroup()
+
+# Fragment ratio per bin for no cancer group
+df.cor.no_ca <- df.ratio %>% 
+  filter(cancer == "No") %>%
+  group_by(bin) %>% #group by bin
+  summarise(median.ratio1=median(ratio1, na.rm=TRUE),
+            median.ratio1.corrected=median(ratio1.corrected, na.rm=TRUE),
+            median.ratio1.scale=median(ratio1.scale, na.rm=TRUE),
+            median.ratio1.scale.corrected=median(ratio1.scale.corrected, na.rm=TRUE),
+            median.ratio2=median(ratio1, na.rm=TRUE),
+            median.ratio2.corrected=median(ratio2.corrected, na.rm=TRUE),
+            median.ratio2.scale=median(ratio2.scale, na.rm=TRUE),
+            median.ratio2.scale.corrected=median(ratio2.scale.corrected, na.rm=TRUE),
+            median.ratio3=median(ratio1, na.rm=TRUE),
+            median.ratio3.corrected=median(ratio3.corrected, na.rm=TRUE),
+            median.ratio3.scale=median(ratio3.scale, na.rm=TRUE),
+            median.ratio3.scale.corrected=median(ratio3.scale.corrected, na.rm=TRUE),
+        ) %>%
+  ungroup() 
+
+# Calculate spearm coefficient 
+df.cor.res <- df.ratio %>% 
+  group_by(id, group2, group3) %>%
+  summarise(
+    ratio1.cor=cor(ratio1, df.cor.no_ca$median.ratio1, method="spearman", use = "complete.obs"),
+    ratio1.corrected.cor=cor(ratio1.corrected, df.cor.no_ca$median.ratio1.corrected, method="spearman", use = "complete.obs"),
+    ratio1.scale.cor=cor(ratio1.scale, df.cor.no_ca$median.ratio1.scale, method="spearman", use = "complete.obs"),
+    ratio1.scale.corrected.cor=cor(ratio1.scale.corrected, df.cor.no_ca$median.ratio1.scale.corrected, method="spearman", use = "complete.obs"),
+    ratio2.cor=cor(ratio2, df.cor.no_ca$median.ratio2, method="spearman", use = "complete.obs"),
+    ratio2.corrected.cor=cor(ratio2.corrected, df.cor.no_ca$median.ratio2.corrected, method="spearman", use = "complete.obs"),
+    ratio2.scale.cor=cor(ratio2.scale, df.cor.no_ca$median.ratio2.scale, method="spearman", use = "complete.obs"),
+    ratio2.scale.corrected.cor=cor(ratio2.scale.corrected, df.cor.no_ca$median.ratio2.scale.corrected, method="spearman", use = "complete.obs"),
+    ratio3.cor=cor(ratio3, df.cor.no_ca$median.ratio3, method="spearman", use = "complete.obs"),
+    ratio3.corrected.cor=cor(ratio3.corrected, df.cor.no_ca$median.ratio3.corrected, method="spearman", use = "complete.obs"),
+    ratio3.scale.cor=cor(ratio3.scale, df.cor.no_ca$median.ratio3.scale, method="spearman", use = "complete.obs"),
+    ratio3.scale.corrected.cor=cor(ratio3.scale.corrected, df.cor.no_ca$median.ratio3.scale.corrected, method="spearman", use = "complete.obs")) %>% 
+  ungroup()
+
+# Save 
+write.csv(df.cor.res, "protocol_ms/data/13-fragratio/13-fragratio_corr_summary241724.csv", row.names = FALSE)
+saveRDS(df.cor.res, "protocol_ms/data/13-fragratio/13-fragratio_corr_summary.rds")
+
+```
