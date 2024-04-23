@@ -17,11 +17,6 @@ outdir <- options.args[2]
 plotdir <- options.args[3] 
 statdir <- options.args[4]
 
-### For testing on local drive
-# setwd("W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA/protocol_ms")
-# fragdir <- "data/04-bins5mb"
-# plotdir <- "data/10-gcbias_plots"
-
 # Turn off scientific notation
 options(scipen = 999)
 
