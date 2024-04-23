@@ -14,10 +14,6 @@ names(options.args) <- unlist(options.names)
 fragdir <- options.args[1]
 outdir <- options.args[2]
 
-## For testing locally
-#setwd("W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA/protocol_ms")
-#fragdir <- "data/10-frags_gc"
-
 # Get file names for fragment/bin data
 files <- list.files(fragdir, full.names=TRUE)
 files.list <- lapply(files, readRDS)
