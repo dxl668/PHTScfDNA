@@ -1,0 +1,203 @@
+---
+title: "MLG and ROC analysis of cfDNA fragmentomic features"
+author: "Darren Liu"
+date: "2024-04-22"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA")
+
+```
+
+#Library
+```{r library}
+library(tidyverse)
+library(viridis)
+library(gtsummary)
+library(pROC)
+```
+
+#import summary 
+```{r import, echo = FALSE}
+
+# Import Frag Ratios and meta data
+df.summary <- readRDS("protocol_ms/data/13-fragratio/13-fragratio_corr_summary.rds")
+meta <- read.csv("protocol_ms/data/phtscfx_meta240304.csv")
+meta <- meta %>% select(id, sex, age.draw, bl.ccscore)
+
+# Merge 
+df.summary <- meta %>%
+  inner_join(
+    df.summary, by = "id"
+  )
+
+```
+
+# Functions for LOOCV
+```{r functions, echo = FALSE}
+
+# Function to calculate ROC
+calculate_auroc <- function(predicted, actual) {
+  roc_obj <- roc(actual, predicted)
+  auroc_val <- auc(roc_obj)
+  return(auroc_val)
+}
+
+# Function for LOOCV
+loocv_manual <- function(data, formula_str) {
+  n <- nrow(data)
+  predicted_values <- numeric(n)
+  actual_values <- numeric(n)
+
+  for (i in 1:n) {
+    train_data <- data[-i,]
+    test_data <- data[i,]
+    glm_fit <- glm(as.formula(formula_str), data = train_data, family = binomial())
+    predicted_values[i] <- predict(glm_fit, newdata = test_data, type = "response")
+    actual_values[i] <- test_data$group_binary
+  }
+
+  return(list(predicted = predicted_values, actual = actual_values))
+}
+```
+
+# LOOCV Analysis
+```{r loocv, echo = FALSE}
+
+# Select variables and create a rescaled dataset (for easier interpretation)
+df.log.var <- df.summary %>%
+  select(
+    group2,
+    age.draw,
+    bl.ccscore,
+    sex,
+    ratio1.corrected,
+    ratio2.corrected,
+    ratio3.corrected
+  ) %>%
+  mutate(
+    rescaled_ratio1_corrected = ratio1.corrected * 10,
+    rescaled_ratio2_corrected = ratio2.corrected * 10,
+    rescaled_ratio3_corrected = ratio3.corrected * 10
+  ) %>%
+  mutate(group_binary = if_else(group2 == "SMN", 1, 0))
+
+# Define the predictor variable combinations
+predictor_var_combinations <- list(
+  c("age.draw", "bl.ccscore", "rescaled_ratio1_corrected"),
+  c("age.draw", "bl.ccscore", "rescaled_ratio2_corrected"),
+  c("age.draw", "bl.ccscore", "rescaled_ratio3_corrected")
+)
+
+
+# Running LOOCV manually for each model
+formula1 <- "group_binary ~ age.draw + bl.ccscore + rescaled_ratio1_corrected"
+formula2 <- "group_binary ~ age.draw + bl.ccscore + rescaled_ratio2_corrected"
+formula3 <- "group_binary ~ age.draw + bl.ccscore + rescaled_ratio3_corrected"
+
+cv_results1 <- loocv_manual(df.log.var, formula1)
+cv_results2 <- loocv_manual(df.log.var, formula2)
+cv_results3 <- loocv_manual(df.log.var, formula3)
+
+# List of formulas for the three models
+formulas <- list(
+  as.formula("group_binary ~ age.draw + bl.ccscore + rescaled_ratio1_corrected"),
+  as.formula("group_binary ~ age.draw + bl.ccscore + rescaled_ratio2_corrected"),
+  as.formula("group_binary ~ age.draw + bl.ccscore + rescaled_ratio3_corrected")
+)
+
+# Create the models
+models_rescaled <- lapply(formulas, function(formula) {
+  glm(formula, data = df.log.var, family = binomial(link = "logit"))
+})
+
+
+# Update predictor_vars to use rescaled ratio variables
+predictor_vars_rescaled <- c("rescaled_ratio1_corrected", "rescaled_ratio2_corrected", "rescaled_ratio3_corrected")
+
+names(models_rescaled) <- predictor_vars_rescaled
+
+# Create the summary tables
+summary_tables_rescaled <- map2(names(models_rescaled), models_rescaled, function(predictor_var, model) {
+  tbl <- tbl_regression(model, exponentiate = TRUE) %>%
+    modify_header(estimate ~ paste0("OR (", predictor_var, ")")) %>%
+    modify_header(p.value ~ paste0("p-value (", predictor_var, ")")) %>%
+    add_global_p()
+  return(tbl)
+})
+names(summary_tables_rescaled) <- names(models_rescaled)
+
+# Print the summary tables for rescaled models
+summary_tables_rescaled
+
+# Combine the summary tables into a single table
+combined_table <- tbl_merge(summary_tables_rescaled)
+
+# Print the combined table
+combined_table <- as_gt(combined_table)
+
+# Save table 
+gtsave(combined_table, filename = "protocol_ms/data/14-mlg_loocv/Table2_MLG_summary.rtf")
+
+
+# Calculate AUROC for each model
+auroc1 <- calculate_auroc(cv_results1$predicted, cv_results1$actual)
+auroc2 <- calculate_auroc(cv_results2$predicted, cv_results2$actual)
+auroc3 <- calculate_auroc(cv_results3$predicted, cv_results3$actual)
+
+print(auroc1)
+print(auroc2)
+print(auroc3)
+
+# Generate the ROC objects for each model
+roc_obj1 <- roc(cv_results1$actual, cv_results1$predicted)
+roc_obj2 <- roc(cv_results2$actual, cv_results2$predicted)
+roc_obj3 <- roc(cv_results3$actual, cv_results3$predicted)
+
+roc_curves <- list(roc_obj1, roc_obj2, roc_obj3)
+model_names <- c("rescaled_ratio1_corrected", "rescaled_ratio2_corrected", "rescaled_ratio3_corrected")
+
+
+# Producec AUROC plots
+roc_plots <- map2(roc_curves, model_names, ~ {
+  ggroc(.x, legacy.axes = TRUE) +
+    ggtitle(paste0("ROC curve for model: ", .y)) +
+    xlab("1 - Specificity") +
+    ylab("Sensitivity") +
+    coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+    geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red", alpha = 0.6)  # Add the 45-degree line
+})
+
+roc_data <- map2_dfr(roc_curves, model_names, function(roc_obj, model_name) {
+  roc_obj_df <- data.frame(Specificity = roc_obj$specificities, Sensitivity = roc_obj$sensitivities)
+  roc_obj_df$model_name <- model_name
+  return(roc_obj_df)
+})
+
+
+roc_data <- roc_data %>%
+  mutate(model_name = case_when(
+    model_name == "rescaled_ratio1_corrected" ~ paste0("Ratio1 (AUC = ", sprintf("%.2f", auc(roc_obj1)), ")"),
+    model_name == "rescaled_ratio2_corrected" ~ paste0("Ratio2 (AUC = ", sprintf("%.2f", auc(roc_obj2)), ")"),
+    model_name == "rescaled_ratio3_corrected" ~ paste0("Ratio3 (AUC = ", sprintf("%.2f", auc(roc_obj3)), ")")
+  ))
+
+# Define colors
+viridis_palette <- viridis(25)
+custom_color <- viridis_palette[c(1,15,24)]
+
+# Combined ROC plot
+combined_roc_plot <- ggplot(roc_data, aes(x = 1 - Specificity, y = Sensitivity, color = model_name)) +
+  geom_path(size = 1) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "black", alpha = 0.6) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  xlab("1 - Specificity") +
+  ylab("Sensitivity") +
+  scale_color_manual(name = "Models", values = custom_color)
+
+# Save and print the combined ROC plot
+ggsave(combined_roc_plot, filename = "protocol_ms/data/14-mlg_loocv/SFigure4_ROC_LOOCV.tiff", device = "tiff", width = 8, height = 4)
+```
