@@ -1,0 +1,151 @@
+---
+title: "Additional cfDNA fragment end motif analysis"
+author: "Darren Liu"
+date: "2024-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA")
+
+```
+
+# Load library
+```{r libraries}
+
+library(tidyverse)
+library(rstatix)
+
+```
+
+# Import Data
+```{r import}
+
+# Import end motif data
+df.motif <- readRDS("protocol_ms/data/22-motif_analysis/22-motif_analysis.4bp.rds")
+
+# Reorder levels
+df.motif <- df.motif %>% 
+  mutate(
+    group2 = factor(group2, levels = c("SMN", "PMN", "No Cancer")),
+    group3 = factor(group3, levels = c("Pre-SMN", "Post-SMN", "Pre-PMN", "Post-PMN", "No Cancer")))
+
+
+```
+
+# Statisticaly Analysis of n-mers 
+```{r stat_nmer}
+
+# Function for calculate n-mer 
+calculate_nmer <- function(df, group_var) {
+  df %>% 
+    mutate(end_motif = str_extract(end_motif, sprintf("\\b[A-Z]{%d}", n))) %>% # Extracts the first n characters from 4-mer end_motifs
+    group_by(id, end_motif, .data[[group_var]]) %>%
+    summarise(
+      freq = sum(freq), 
+      freq.corrected = sum(freq.corrected), 
+      .groups = "drop"
+    )
+
+}
+
+# Function for KW test 
+kw_test_motif <- function(df, group_var, column) {
+  formula <- as.formula(paste(column, "~", group_var))
+  
+  df %>%
+    group_by(end_motif) %>%  # Group by each unique motif
+    kruskal_test(formula) %>%
+    mutate(group = group_var) %>%
+    relocate(group, .after = end_motif) %>%
+    ungroup()
+}
+
+# Function for WX test 
+pairwise_wilcox_test <- function(df, group_var, column) {
+  formula <- as.formula(paste(column, "~", group_var))
+  
+  df %>%
+    group_by(end_motif) %>%
+    wilcox_test(formula, exact = TRUE) %>%
+    adjust_pvalue(method = "BH") %>% # Apply BH correction
+    add_significance() %>% 
+    mutate(group = group_var) %>%
+    relocate(group, .after = end_motif) %>% 
+    ungroup()
+}
+
+
+# Calcualte 1-mer 
+n <- 1
+
+df.motif_1bp.smn <- calculate_nmer(df.motif, "group2")
+df.motif_1bp.pre <- calculate_nmer(df.motif, "group3")
+
+# Calculate 2-mer
+n <- 2
+df.motif_2bp.smn <- calculate_nmer(df.motif, "group2")
+df.motif_2bp.pre <- calculate_nmer(df.motif, "group3")
+
+
+# Perform KW test
+res_1bp.kw.smn <- kw_test_motif(df.motif_1bp.smn, "group2", "freq.corrected")
+res_1bp.kw.pre <- kw_test_motif(df.motif_1bp.pre, "group3", "freq.corrected")  
+res_2bp.kw.smn <- kw_test_motif(df.motif_2bp.smn, "group2", "freq.corrected")
+res_2bp.kw.pre <- kw_test_motif(df.motif_2bp.pre, "group3", "freq.corrected")
+
+# Perform WX test
+res_1bp.wx.smn <- pairwise_wilcox_test(df.motif_1bp.smn, "group2", "freq.corrected")
+res_1bp.wx.pre <- pairwise_wilcox_test(df.motif_1bp.pre, "group3", "freq.corrected")
+res_2bp.wx.smn <- pairwise_wilcox_test(df.motif_2bp.smn, "group2", "freq.corrected")
+res_2bp.wx.pre <- pairwise_wilcox_test(df.motif_2bp.pre, "group3", "freq.corrected")
+
+# Combine 
+res_1bp.kw.all <- rbind(res_1bp.kw.smn, res_1bp.kw.pre)
+res_2bp.kw.all <- rbind(res_2bp.kw.smn, res_2bp.kw.pre)
+res_1bp.wx.all <- rbind(res_1bp.wx.smn, res_1bp.wx.pre)
+res_2bp.wx.all <- rbind(res_2bp.wx.smn, res_2bp.wx.pre)
+
+# Save files
+write.csv(res_1bp.kw.all, "protocol_ms/data/22-motif_analysis/old/res_1bp_kw.csv", row.names = FALSE)
+write.csv(res_2bp.kw.all, "protocol_ms/data/22-motif_analysis/old/res_2bp_kw.csv", row.names = FALSE)
+write.csv(res_1bp.wx.all, "protocol_ms/data/22-motif_analysis/old/res_1bp_wx.csv", row.names = FALSE)
+write.csv(res_2bp.wx.all, "protocol_ms/data/22-motif_analysis/old/res_2bp_wx.csv", row.names = FALSE)
+
+```
+
+# Summarize n-mer end motifs by subgroups
+```{r summarize}
+
+# Function to summarize
+summarize_end_motif <- function(df, group_var) {
+  df %>% 
+    group_by(end_motif, .data[[group_var]]) %>%
+    summarise(
+      median.freq = median(freq), 
+      q25 = quantile(freq, 0.25), 
+      q75 = quantile(freq, 0.75),
+      median.freq.corrected = median(freq.corrected), 
+      q25.corrected = quantile(freq.corrected, 0.25), 
+      q75.corrected = quantile(freq.corrected, 0.75), 
+      .groups = "drop"
+    )
+}
+
+# Calculate n-mers
+df.motif_summary_4bp.smn <- summarize_end_motif(df.motif, "group2")
+df.motif_summary_4bp.pre <- summarize_end_motif(df.motif, "group3")
+df.motif_summary_2bp.smn <- summarize_end_motif(df.motif_2bp.smn, "group2")
+df.motif_summary_2bp.pre <- summarize_end_motif(df.motif_2bp.pre, "group3")
+df.motif_summary_1bp.smn <- summarize_end_motif(df.motif_1bp.smn, "group2")
+df.motif_summary_1bp.pre <- summarize_end_motif(df.motif_1bp.pre, "group3")
+
+# Save files
+write.csv(df.motif_summary_4bp.smn, "protocol_ms/data/22-motif_analysis/22-motif_4bp_smn_mediqr.csv", row.names = FALSE)
+write.csv(df.motif_summary_4bp.pre, "protocol_ms/data/22-motif_analysis/22-motif_4bp_pre_mediqr.csv", row.names = FALSE)
+write.csv(df.motif_summary_2bp.smn, "protocol_ms/data/22-motif_analysis/22-motif_2bp_smn_mediqr.csv", row.names = FALSE)
+write.csv(df.motif_summary_2bp.pre, "protocol_ms/data/22-motif_analysis/22-motif_2bp_pre_mediqr.csv", row.names = FALSE)
+write.csv(df.motif_summary_1bp.smn, "protocol_ms/data/22-motif_analysis/22-motif_1bp_smn_mediqr.csv", row.names = FALSE )
+write.csv(df.motif_summary_1bp.pre, "protocol_ms/data/22-motif_analysis/22-motif_1bp_pre_mediqr.csv", row.names = FALSE)
+```

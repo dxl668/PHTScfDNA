@@ -1,20 +1,32 @@
 #!/bin/bash
+#SBATCH --job-name=LiuD_cfDNA_11-combine_bin
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=liud3@ccf.org
+#SBATCH --mail-type=BEGIN
+#SBATCH --mail-type=END
+#SBATCH --mail-type=FAIL
+#SBATCH --mail-type=REQUEUE
+#SBATCH -p bigmem
+#SBATCH -n 1
+#SBATCH -c 4
+#SBATCH --mem 128000 # Memory request (128 GB)
+#SBATCH -t 2-2:00 #Maximum execution time (D-HH:MM)
+#SBATCH -o 11-combine_bin.out
+#SBATCH -e 11-combine_bin.err
 
-#load R
+# Define project directory
+PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
+cd "$PROJECT_DIR"
+
+# Define input/output directories 
+fragdir="${PROJECT_DIR}/10-frags_gc"
+outdir="${PROJECT_DIR}/11-combine_bin"
+mkdir -p "$outdir"  #Create directories if needed
+
 module load R
 
-#Define my working directory 
-CWD=/home/liud3/beegfs/cfDNA/data/cfdna_pipeline
-cd $CWD
-
-
-#Define directory for 
-motifdir=/home/liud3/beegfs/cfDNA/data/cfdna_pipeline/10-fragsGC
-
-#Define 
-outdir=/home/liud3/beegfs/cfDNA/data/cfdna_pipeline/11-combine_bin
-
-#Run R script 
-Rscript 11-combine_bin.R --motifdir $fragdir --outdir $outdir
-
-echo Done combine dataframes with gc-corrected framgnets into single dataframe!
+# Initialize R script
+Rscript 11-combine_bin.R \
+--fragdir $fragdir \
+--outdir $outdir
+echo Done combining end motif data!

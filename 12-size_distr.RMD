@@ -1,0 +1,712 @@
+---
+title: "cfDNA fragment size distribution"
+author: "Darren Liu"
+date: "2024-04-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA")
+```
+
+# Load library
+```{r libraries}
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(scales)
+library(viridis)
+```
+
+# Import Data
+```{r import}
+
+# Import frag/bin and meta data  
+df.frags <- readRDS("protocol_ms/data/11-combine_bin/binfrag_summary.rds")
+meta <- read.csv("protocol_ms/data/phtscfx_meta240304.csv")
+```
+
+# Clean and reshape data
+```{r clean}
+
+# Summarise counts for each cfDNA fragment size per sample
+df.frags <- df.frags %>%
+  group_by(id) %>% 
+  summarise(
+    across(counts_100:counts.corrected_638, sum)
+  )
+
+# Merge with meta data 
+df.frags <- inner_join(meta, df.frags, by="id") 
+
+# Uncorrected counts
+df.frags1 <- df.frags %>% 
+  select(matches("^id$|^cancer$|^group2$|^group3$|^ca_1st$|^ca_2nd$|^counts_[0-9]+$"))
+
+# Reshape  
+df.frags1 <- df.frags1 %>%
+  pivot_longer(cols = starts_with("counts_"), 
+               names_to = "frag_size",
+               values_to = "counts") %>% 
+  mutate(frag_size = as.numeric(str_remove(frag_size, "counts_")))
+
+# Corrected counts 
+df.frags1.corrected <- df.frags %>% 
+  select(matches("^id$|^cancer$|^group2$|^group3$|^ca_1st$|^ca_2nd$|^counts\\.corrected_[0-9]+$"))
+
+# Reshape dataframe 
+df.frags1.corrected <- df.frags1.corrected %>%
+  pivot_longer(cols = starts_with("counts.corrected_"), 
+               names_to = "frag_size",
+               values_to = "counts.corrected") %>% 
+  mutate(frag_size = as.numeric(str_remove(frag_size, "counts.corrected_")))
+
+# Merge uncorrected/corrected counts 
+df.frags2 <- df.frags1 %>% 
+  full_join(df.frags1.corrected, 
+            by = c("id", "cancer", "group2", "group3", "ca_1st", "ca_2nd", "frag_size"))
+
+
+# calculate frequency and total counts
+df.frags2 <- df.frags2 %>%
+  group_by(id) %>% 
+  mutate(
+    total.counts = sum(counts), 
+    total.counts.corrected = sum(counts.corrected),
+    freq = counts / total.counts,
+    freq.corrected = counts.corrected/total.counts.corrected
+  ) %>% ungroup() %>%
+  mutate(
+    frac = case_when(
+        frag_size >= 100 & frag_size <=250 ~ "Mononucleosome", 
+        frag_size >= 251 & frag_size <=450 ~ "Dinucleosome", 
+        frag_size >= 451 & frag_size <=650 ~ "Trinucleosome"
+  )) %>%
+  mutate(
+    frac = factor(frac, levels = c("Mononucleosome", "Dinucleosome", "Trinucleosome"))
+  ) %>% 
+  relocate(frac, .before = frag_size)
+
+# Save files
+write.csv(df.frags2, "protocol_ms/data/12-size_distr/12-size_distr_summary240403.csv", row.names = FALSE)
+saveRDS(df.frags2, "protocol_ms/data/12-size_distr/size_distr.rds")
+```
+
+# Figure 1A-C. Fragment Size Distribution by Cancer Status 
+```{r fig1_ca}
+
+# Calculate median by cancer status 
+df.frags.ca <- df.frags2 %>% ungroup() %>% 
+  group_by(cancer, frag_size, frac) %>%
+  summarise(
+    median.freq = median(freq),
+    median.freq.correct = median(freq.corrected)
+  ) %>%
+  mutate(
+    cancer = case_when(
+      cancer == "Yes" ~ "Cancer",
+      cancer == "No" ~ "No Cancer")
+  )
+
+# Sample sizes (used for labeling)
+n_cancer <- 49
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+df.frags.ca1 <- df.frags.ca %>%
+  mutate(
+    cancer = recode(cancer,
+                    `Cancer` = paste0("Cancer (n = ", n_cancer, ")"),
+                    `No Cancer` = paste0("No Cancer (n = ", n_no_cancer, ")")),)
+  
+# Select color palette
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 29)]
+show_col(viridis_palette)
+
+# Plot distribution for each nucleosome fraction
+p1.ca <- df.frags.ca1 %>%
+  group_by(frac) %>% 
+  group_map(~ggplot(.) + 
+            aes(x = frag_size, y = median.freq.correct, color = cancer) +
+            scale_color_manual(name = "Group",
+                               values = custom_color) +
+            geom_line(size = 0.75) + 
+            labs(x = "Fragment size (bp)", y = "Frequency", title = .y[[1]]) + 
+            theme(axis.title.x = element_text(size = 10),
+                  axis.title.y = element_text(size = 10),
+                  plot.title = element_text(size = 10)))
+
+# Combine plots 
+p1.ca.combined <- ggarrange(plotlist = p1.ca, 
+                             ncol = 3, nrow = 1, labels = c("A", "B", "C"), common.legend = TRUE, legend = "right")
+
+# Save as tiff
+imagedir="protocol_ms/data/12-size_distr"
+out.plot <- file.path(imagedir, "fragdist_ca_240404.tiff")
+ggsave(filename = out.plot, plot = p1.ca.combined, device = "tiff", dpi = 300, width = 8, height = 3)
+```
+
+# Figure 1D-F. Fragment Size Distribution by SMN Status
+```{r fig1_smn}
+
+# Calculate median by SMN status
+df.frags.smn <- df.frags2 %>% ungroup() %>% 
+  group_by(group2, frag_size, frac) %>%
+  summarise(
+    median.freq = median(freq),
+    median.freq.correct = median(freq.corrected)
+  ) %>% 
+  mutate(
+    group2 = factor(group2, levels = c("SMN", "PMN", "No Cancer")),
+  )
+
+# Sample sizes (used for labeling)
+n_smn <- 26
+n_pmn <- 23
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+df.frags.smn1 <- df.frags.smn %>%
+  mutate(
+    group2 = recode(group2,
+                    `SMN` = paste0("SMN (n = ", n_smn, ")"),
+                    `PMN` = paste0("PMN (n = ", n_pmn, ")"),
+                    `No Cancer` = paste0("No Cancer (n = ", n_no_cancer, ")")),)
+  
+# Select color palette
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 16, 29)]
+show_col(viridis_palette)
+
+# Plot distribution for each nucleosome fraction
+p1.smn <- df.frags.smn1 %>%
+  group_by(frac) %>% 
+  group_map(~ggplot(.) + 
+            aes(x = frag_size, y = median.freq.correct, color = group2) +
+            geom_line(size = 0.75) + 
+            labs(x = "Fragment size (bp)", y = "Frequency", title = .y[[1]]) +
+            scale_color_manual(name = "Group",
+                               values = custom_color) +
+            theme(axis.title.x = element_text(size = 10),
+                  axis.title.y = element_text(size = 10),
+                  plot.title = element_text(size = 10)))
+
+
+# Combine plots
+p1.smn.combined <- ggarrange(plotlist = p1.smn, 
+                             ncol = 3, nrow = 1, labels = c("D", "E", "F"), common.legend = TRUE, legend = "right")
+
+# Save as tiff
+imagedir="protocol_ms/data/12-size_distr"
+out.plot <- file.path(imagedir, "fragdist_smn_240404.tiff")
+ggsave(filename = out.plot, plot = p1.smn.combined, device = "tiff", dpi = 300, width = 8, height = 3)
+```
+
+# Figure 1G-I. Fragment Size Distribution by SMN Status and Plasma Draw
+```{r fig1_pre}
+
+# Calculate median by SMN and plasma draw time
+df.frags.pre <- df.frags2 %>% ungroup() %>% 
+  group_by(group3, frag_size, frac) %>%
+  summarise(
+    median.freq = median(freq),
+    median.freq.correct = median(freq.corrected)
+  ) %>% 
+  mutate(
+    group3 = factor(group3, levels = c("Pre-SMN", "Post-SMN", "Pre-PMN", "Post-PMN", "No Cancer"))
+  )
+
+# Sample sizes (used for labeling)
+n_presmn <- 4
+n_postsmn <- 22
+n_prepmn <- 5
+n_postpmn <- 18
+n_no_cancer <- 50
+
+# Update group names with sample sizes
+df.frags.pre1 <- df.frags.pre %>%
+  mutate(group3 = recode(group3,
+                         `Pre-SMN` = paste0("Pre-SMN (n = ", n_presmn, ")"),
+                         `Pre-PMN` = paste0("Pre-PMN (n = ", n_prepmn, ")"),
+                         `Post-SMN` = paste0("Post-SMN (n = ", n_postsmn, ")"),
+                         `Post-PMN` = paste0("Post-PMN (n = ", n_postpmn, ")"),
+                         `No Cancer` = paste0("No Cancer (n = ", n_no_cancer, ")")))
+
+# Select color palette
+viridis_palette <- viridis(30)
+custom_color <- viridis_palette[c(1, 9, 16, 24, 29)]
+show_col(viridis_palette)
+
+# Plot distribution for each nucleosome fraction
+p1.pre <- df.frags.pre1 %>%
+  group_by(frac) %>% 
+  group_map(~ggplot(.) + 
+            aes(x = frag_size, y = median.freq.correct, color = group3) +
+            geom_line(size = 0.75) + 
+            labs(x = "Fragment size (bp)", y = "Frequency", title = .y[[1]]) +
+            scale_color_manual(name = "Group",
+                               values = custom_color) +
+            theme(axis.title.x = element_text(size = 10),
+                  axis.title.y = element_text(size = 10),
+                  plot.title = element_text(size = 10)))
+
+
+# Combine plots
+p1.pre.combined <- ggarrange(plotlist = p1.pre, 
+                             ncol = 3, nrow = 1, labels = c("D", "E", "F"), common.legend = TRUE, legend = "right")
+
+# Save as tiff
+imagedir="protocol_ms/data/12-size_distr"
+out.plot <- file.path(imagedir, "fragdist_pre_240404.tiff")
+ggsave(filename = out.plot, plot = p1.pre.combined, device = "tiff", dpi = 300, width = 8, height = 3)
+
+```
+
+# Combine and save main figures
+```{r main_fig_save}
+
+# Combine all size distribution plots
+p1.combined <- ggarrange(p1.ca.combined, p1.smn.combined, p1.pre.combined, ncol = 1, nrow = 3, common.legend = F, legend = "right")
+imagedir="protocol_ms/data/12-size_distr"
+out.plot <- file.path(imagedir, "Figure1_fragdist_combined_240404.tiff")
+ggsave(filename = out.plot, plot = p1.combined, device = "tiff", dpi = 300, width = 8, height = 9)
+
+```
+
+# Statistical Analysis, KS Test - All Nucleosomes
+```{r ks_res_overall}
+
+# Function to perform pairwise KS tests
+ks_test <- function(data, variable_name) {
+  # Get the list of groups
+  groups <- unique(data$group)
+
+  # Generate all pairs of groups
+  pairs <- combn(groups, 2, simplify = FALSE)
+
+  # Perform the KS test for each pair
+  results <- lapply(pairs, function(pair) {
+    group1_data <- data$value[data$group == pair[1]]
+    group2_data <- data$value[data$group == pair[2]]
+    ks_result <- ks.test(group1_data, group2_data)
+
+    # Return a data frame with the test result and the groups compared
+    data.frame(
+      variable = variable_name,
+      group1 = pair[1],
+      group2 = pair[2],
+      statistic = ks_result$statistic,
+      p.value = ks_result$p.value
+    )
+  })
+
+  # Combine the results into a single data frame
+  do.call(rbind, results)
+}
+
+# Reshape dataframes 
+df.frags.ca.long <- df.frags.ca %>%
+  select(cancer, median.freq.correct, median.freq, frac, frag_size) %>%
+  pivot_longer(cols = c("median.freq.correct", "median.freq"), names_to = "variable", values_to = "value") %>%
+  rename(group = cancer)
+ 
+df.frags.smn.long <- df.frags.smn %>%
+  select(group2, median.freq.correct, median.freq, frac, frag_size) %>%
+  pivot_longer(cols = c("median.freq.correct", "median.freq"), names_to = "variable", values_to = "value") %>%
+  rename(group = group2)
+ 
+df.frags.pre.long <- df.frags.pre %>%
+  select(group3, median.freq.correct, median.freq, frac, frag_size) %>%
+  pivot_longer(cols = c("median.freq.correct", "median.freq"), names_to = "variable", values_to = "value") %>%
+  rename(group = group3)
+
+# Group the data by the variable and split it into a list of data frames
+df.grouped.ca <- split(df.frags.ca.long, df.frags.ca.long$variable)
+df.grouped.smn <- split(df.frags.smn.long, df.frags.smn.long$variable)
+df.grouped.pre <- split(df.frags.pre.long, df.frags.pre.long$variable)
+
+# Apply the ks test to each group
+ks.res.ca <- lapply(names(df.grouped.ca), function(name) ks_test(df.grouped.ca[[name]], name))
+ks.res.smn <- lapply(names(df.grouped.smn), function(name) ks_test(df.grouped.smn[[name]], name))
+ks.res.pre <- lapply(names(df.grouped.pre), function(name) ks_test(df.grouped.pre[[name]], name))
+
+# Combine list (non-Gc and Gc-corrected results) into single dataframe 
+df.res.ca <- do.call(rbind, ks.res.ca)
+df.res.smn <- do.call(rbind, ks.res.smn)
+df.res.pre <- do.call(rbind, ks.res.pre)
+df.res.all <- rbind(df.res.ca, df.res.smn, df.res.pre)
+
+# Save CSV
+write.csv(df.res.all, "protocol_ms/data/12-size_distr/kstest_overall_pairwise240404.csv", row.names = FALSE)
+
+```
+
+# Statistical Analysis, KS Test - Individual Nucleosomes
+```{r ks_res_indv}
+
+## Functions
+# Split data
+split_data <- function(df) {
+  split(df, list(df$variable, df$frac))
+}
+
+# Clean up results
+process_res <- function(df) {
+  df %>%
+    mutate(frac = str_extract(variable, "\\.[^.]+$")) %>%
+    mutate(frac = str_remove(frac, "\\."), 
+           variable = str_remove(variable, "\\.[^.]+$")) %>%
+    relocate(variable, .after = group2) %>%
+    relocate(frac, .after = variable)
+}
+
+# Create list from results for each subgroup 
+df.frags.all.long <- list(ca = df.frags.ca.long, smn = df.frags.smn.long, pre = df.frags.pre.long)
+
+results <- list()
+# Loop through list and apply functions
+for (name in names(df.frags.all.long)) {
+  group <- split_data(df.frags.all.long[[name]])
+  ks.res <- lapply(names(group), function(group_name) ks_test(group[[group_name]], group_name))
+  res <- do.call(rbind, ks.res)
+  df.res <- process_res(res)
+  results[[name]] <- df.res
+}
+
+# Combine list into single dataframe
+df.res.all <- rbind(results$ca, results$smn, results$pre)
+
+# Save CSV
+write.csv(df.res.all, "protocol_ms/data/12-size_distr/kstest_frac_pairwise240404.csv", row.names = FALSE)
+
+```
+
+# SFigure 1. Cumulative Frequency Distribution 
+```{r cum_freq}
+
+# Calculate cumulative frequency 
+calculate_cum_freq <- function(df, group_var) {
+  df %>%
+    group_by(group = {{group_var}}, frac, variable) %>%
+    arrange(frag_size) %>%
+    mutate(cum_freq = cumsum(value)) %>%
+    ungroup()
+}
+
+# Plot cumulative frequency 
+plot_cumulative_frequency <- function(df, color_palette) {
+  p <- df %>%
+    filter(variable != "median.freq") %>%
+    group_by(frac, variable) %>%
+    group_map(~ggplot(data = .x, aes(x = frag_size, y = cum_freq, color = group)) +
+                geom_line(size = 0.75) +
+                labs(x = "Fragment size (bp)", y = "Cumulative Frequency", title = .y[[1]]) +
+                scale_color_manual(name = "Group", values = color_palette) +
+                theme(axis.title.x = element_text(size = 10),
+                      axis.title.y = element_text(size = 10),
+                      plot.title = element_text(size = 10)))
+  return(p)
+}
+
+
+# Calculate cumlative frequency for subgroups
+df.cumfreq.ca <- calculate_cum_freq(df.frags.ca.long, group)
+df.cumfreq.smn <- calculate_cum_freq(df.frags.smn.long, group)
+df.cumfreq.pre <- calculate_cum_freq(df.frags.pre.long, group)
+
+# Rename for figure labeling
+df.cumfreq.smn <- df.cumfreq.smn %>%
+  mutate(
+    group = recode(group,
+                    `SMN` = paste0("SMN (n = ", n_smn, ")"),
+                    `PMN` = paste0("PMN (n = ", n_pmn, ")"),
+                    `No Cancer` = paste0("No Cancer (n = ", n_no_cancer, ")")),)
+
+
+df.cumfreq.pre <- df.cumfreq.pre %>%
+  mutate(group = recode(group,
+                         `Pre-SMN` = paste0("Pre-SMN (n = ", n_presmn, ")"),
+                         `Pre-PMN` = paste0("Pre-PMN (n = ", n_prepmn, ")"),
+                         `Post-SMN` = paste0("Post-SMN (n = ", n_postsmn, ")"),
+                         `Post-PMN` = paste0("Post-PMN (n = ", n_postpmn, ")"),
+                         `No Cancer` = paste0("No Cancer (n = ", n_no_cancer, ")")))
+
+
+# Define color palette
+viridis_palette <- viridis(30)
+show_col(viridis_palette)
+color_ca <- viridis_palette[c(1, 29)]
+color_smn <- viridis_palette[c(1, 16, 29)]
+color_pre <- viridis_palette[c(1, 9, 16, 24, 29)]
+
+# Generate plot for subgroups
+p1.cf.ca <- plot_cumulative_frequency(df.cumfreq.ca, color_ca)
+p1.cf.smn <- plot_cumulative_frequency(df.cumfreq.smn, color_smn)
+p1.cf.pre <- plot_cumulative_frequency(df.cumfreq.pre, color_pre)
+  
+
+# Combine plots
+p1.cf.ca.combined <- ggarrange(plotlist = p1.cf.ca, ncol = 3, nrow = 1, labels = c("A", "B", "C"), common.legend = TRUE, legend = "right")
+
+p1.cf.smn.combined <- ggarrange(plotlist = p1.cf.smn, ncol = 3, nrow = 1, labels = c("D", "E", "F"), common.legend = TRUE, legend = "right")
+
+p1.cf.pre.combined <- ggarrange(plotlist = p1.cf.pre, ncol = 3, nrow = 1, labels = c("G", "H", "I"), common.legend = TRUE, legend = "right")
+
+
+# Combine all and save  
+p1.cf.combined <- ggarrange(p1.cf.ca.combined, p1.cf.smn.combined, p1.cf.pre.combined, ncol = 1, nrow = 3, common.legend = F, legend = "right")
+
+imagedir="protocol_ms/data/12-size_distr"
+out.plot <- file.path(imagedir, "SFigure1_cumfreq_240416.tiff")
+ggsave(filename = out.plot, plot = p1.cf.combined, device = "tiff", dpi = 300, width = 8, height = 9, bg = "white")
+
+
+```
+
+# SFigure 2. Difference in Fragment Size Frequency 
+```{r delta_f}
+
+# Function to calculate delta F
+calculate_delta_f <- function(df, pairs) {
+  # Reshape to wide format to facilitate group-wise subtraction
+  df_wide <- df %>%
+    pivot_wider(names_from = group, values_from = value)
+
+  # Calculate delta_f for each pair specified in pairs
+  for (pair in pairs) {
+    group1 <- gsub("[ -]", "_", pair[1])  # Replace spaces and hyphens with underscores
+    group2 <- gsub("[ -]", "_", pair[2])  
+    delta_col_name <- paste0("delta_f_", group1, "_", group2)
+    
+    # Calculate difference
+    df_wide <- df_wide %>%
+      mutate(!!delta_col_name := !!sym(pair[1]) - !!sym(pair[2]))
+  }
+
+  # Reshape to long format
+  df_long <- df_wide %>%
+    pivot_longer(
+      cols = starts_with("delta_f"),
+      names_to = "group",
+      values_to = "delta_f"
+    )
+
+  return(df_long)
+}
+
+# Define pairs 
+pairs_ca <- list(c("Cancer", "No Cancer"))
+pairs_smn <- list(c("SMN", "No Cancer"), c("PMN", "No Cancer"))
+pairs_pre <- list(c("Pre-SMN", "No Cancer"), c("Post-SMN", "No Cancer"), c("Pre-PMN", "No Cancer"), c("Post-PMN", "No Cancer"))
+
+# Calculate delta F for subgroups 
+df.delta_f.ca <- calculate_delta_f(df.frags.ca.long, pairs_ca)
+df.delta_f.smn <- calculate_delta_f(df.frags.smn.long, pairs_smn)
+df.delta_f.pre <- calculate_delta_f(df.frags.pre.long, pairs_pre)
+
+# Define color palette
+viridis_palette <- viridis(30)
+show_col(viridis_palette)
+color_ca <- viridis_palette[1]
+color_smn <- viridis_palette[c(1, 16)]
+color_pre <- viridis_palette[c(1, 9, 16, 24)] 
+
+# Rename group column for figure labeling
+df.delta_f.ca$group <- recode(df.delta_f.ca$group,
+                                delta_f_Cancer_No_Cancer = "Cancer (n = 49)")
+
+df.delta_f.smn$group <- recode(df.delta_f.smn$group,
+                                delta_f_SMN_No_Cancer = "SMN (n = 26)",
+                                delta_f_PMN_No_Cancer = "PMN (n = 23)") 
+
+df.delta_f.pre$group <- recode(df.delta_f.pre$group,
+                                delta_f_Pre_SMN_No_Cancer = "Pre-SMN (n = 4)", 
+                                delta_f_Pre_PMN_No_Cancer = "Pre-PMN (n = 5)",
+                                delta_f_Post_SMN_No_Cancer = "Post-SMN (n = 22)",
+                                delta_f_Post_PMN_No_Cancer = "Post-PMN (n = 18)") 
+
+# Reorder factors for labeling
+df.delta_f.smn <- df.delta_f.smn %>% mutate(group = factor(group, levels = c("SMN (n = 26)", "PMN (n = 23)")))
+df.delta_f.pre <- df.delta_f.pre %>% mutate(group = factor(group, levels = c("Pre-SMN (n = 4)", "Post-SMN (n = 22)", "Pre-PMN (n = 5)", "Post-PMN (n = 18)")))
+
+# Function to plot delta F  
+plot_delta_f <- function(df, color_palette) {
+  p <- df %>%
+    filter(variable != "median.freq") %>%
+    group_by(frac, variable) %>%
+    group_map(~ggplot(data = .x, aes(x = frag_size, y = delta_f, color = group)) +
+                geom_line() +
+                labs(x = "Fragment size (bp)", y = expression(paste(Delta, "F")), title = .y[[1]]) +
+                scale_color_manual(name = "Group", values = color_palette) +
+                theme(axis.title.x = element_text(size = 10),
+                      axis.title.y = element_text(size = 10),
+                      plot.title = element_text(size = 10)))
+  return(p)
+}
+
+# Generate plot for subgroups
+p1.delta_f.ca <- plot_delta_f(df.delta_f.ca, color_ca)
+p1.delta_f.smn <- plot_delta_f(df.delta_f.smn, color_smn)
+p1.delta_f.pre <- plot_delta_f(df.delta_f.pre, color_pre)
+
+# Combine plots
+p1.delta_f.ca.combined <- ggarrange(plotlist = p1.delta_f.ca, ncol = 3, nrow = 1, labels = c("A", "B", "C"), common.legend = TRUE, legend = "bottom")
+
+p1.delta_f.smn.combined <- ggarrange(plotlist = p1.delta_f.smn, ncol = 3, nrow = 1, labels = c("D", "E", "F"), common.legend = TRUE, legend = "bottom")
+
+p1.delta_f.pre.combined <- ggarrange(plotlist = p1.delta_f.pre, ncol = 3, nrow = 1, labels = c("G", "H", "I"), common.legend = TRUE, legend = "bottom")
+
+# Combine all and save  
+p1.delta_f.combined <- ggarrange(p1.delta_f.ca.combined, p1.delta_f.smn.combined, p1.delta_f.pre.combined, ncol = 1, nrow = 3, common.legend = F, legend = "bottom")
+
+imagedir="protocol_ms/data/12-size_distr"
+out.plot <- file.path(imagedir, "SFigure2_delta_f_240416.tiff")
+ggsave(filename = out.plot, plot = p1.delta_f.combined, device = "tiff", dpi = 300, width = 8, height = 9, bg = "white")
+
+```
+
+# SFigure 3. Difference in Cumulative Frequency Distribution
+```{r cum_freq_delta}
+
+# FUnction to calculate total freq frequency 
+calculate_total_freq <- function(df, group_var) {
+  df %>%
+    group_by(group = {{group_var}}, variable) %>%
+    summarize(total_freq = sum(value), .groups = 'drop')
+}
+
+# Calculating total frequency 
+df.total.freq.ca <- calculate_total_freq(df.frags.ca.long, group)
+df.total.freq.smn <- calculate_total_freq(df.frags.smn.long, group)
+df.total.freq.pre <- calculate_total_freq(df.frags.pre.long, group)
+
+# Function to normalize cumulative frequency 
+calculate_norm_cumfreq <- function(df, total_freq_df) {
+  df_cumfreq_norm <- df %>%
+    left_join(total_freq_df, by = c("group", "variable")) %>%
+    # Calculate the normalized frequency for each fragment size within each group
+    mutate(norm_value = value / total_freq) %>%
+    arrange(frag_size) %>%
+    group_by(group, frac, variable) %>%
+    # Calculate the normalized cumulative frequency
+    mutate(norm_cum_freq = cumsum(norm_value)) %>%
+    select(-total_freq, -norm_value) %>% # Unncessary columns
+    ungroup()
+
+  return(df_cumfreq_norm)
+}
+
+# Calculate normalized cumulative frequency 
+df.cumfreq_norm.ca <- calculate_norm_cumfreq(df.frags.ca.long, df.total.freq.ca)
+df.cumfreq_norm.smn <- calculate_norm_cumfreq(df.frags.smn.long, df.total.freq.smn)
+df.cumfreq_norm.pre <- calculate_norm_cumfreq(df.frags.pre.long, df.total.freq.pre)
+
+# Define pairs 
+pairs_ca <- list(c("Cancer", "No Cancer"))
+pairs_smn <- list(c("SMN", "No Cancer"), c("PMN", "No Cancer"))
+pairs_pre <- list(c("Pre-SMN", "No Cancer"), c("Post-SMN", "No Cancer"), c("Pre-PMN", "No Cancer"), c("Post-PMN", "No Cancer"))
+
+
+calculate_delta_cf <- function(df, pairs) {
+  # Pivot data to wide format to faciliate calculation
+  df_wide <- df %>%
+    pivot_wider(names_from = group, values_from = norm_cum_freq, values_fill = list(norm_cum_freq = 0))
+
+  # Ensure no NAs and consolidate for each subgroup
+  df_summarized <- df_wide %>%
+    group_by(frag_size, frac, variable) %>%
+    summarize(across(everything(), sum, na.rm = TRUE), .groups = 'drop')
+
+  # Calculate delta CF for each pair
+  for (pair in pairs) {
+    group1 <- gsub("[ -]", "_", pair[1])  # Replace spaces and hyphens with underscores
+    group2 <- gsub("[ -]", "_", pair[2])
+    delta_col_name <- paste0("delta_cf_", group1, "_", group2)
+    
+    # Calculate difference
+    df_summarized <- df_summarized %>%
+      mutate(!!delta_col_name := !!sym(pair[1]) - !!sym(pair[2]))
+  }
+
+  # Reshape to long format 
+  df_long <- df_summarized %>%
+    pivot_longer(
+      cols = starts_with("delta_cf"),
+      names_to = "group",
+      values_to = "delta_cf"
+    )
+
+  return(df_long)
+}
+
+# Calculate delta CF
+df.delta_cf.ca <- calculate_delta_cf(df.cumfreq_norm.ca, pairs_ca)
+df.delta_cf.smn <- calculate_delta_cf(df.cumfreq_norm.smn, pairs_smn)
+df.delta_cf.pre <- calculate_delta_cf(df.cumfreq_norm.pre, pairs_pre)
+
+# Rename group column for figure labeling
+df.delta_cf.ca$group <- recode(df.delta_cf.ca$group,
+                                delta_cf_Cancer_No_Cancer = "Cancer (n = 49)")
+
+df.delta_cf.smn$group <- recode(df.delta_cf.smn$group,
+                                delta_cf_SMN_No_Cancer = "SMN (n = 26)",
+                                delta_cf_PMN_No_Cancer = "PMN (n = 23)") 
+
+df.delta_cf.pre$group <- recode(df.delta_cf.pre$group,
+                                delta_cf_Pre_SMN_No_Cancer = "Pre-SMN (n = 4)", 
+                                delta_cf_Pre_PMN_No_Cancer = "Pre-PMN (n = 5)",
+                                delta_cf_Post_SMN_No_Cancer = "Post-SMN (n = 22)",
+                                delta_cf_Post_PMN_No_Cancer = "Post-PMN (n = 18)") 
+
+# Reorder factors for labeling
+df.delta_cf.smn <- df.delta_cf.smn %>% mutate(group = factor(group, levels = c("SMN (n = 26)", "PMN (n = 23)")))
+df.delta_cf.pre <- df.delta_cf.pre %>% mutate(group = factor(group, levels = c("Pre-SMN (n = 4)", "Post-SMN (n = 22)", "Pre-PMN (n = 5)", "Post-PMN (n = 18)")))
+
+
+# Function to plot delta CF
+plot_delta_cf <- function(df, color_palette) {
+  p <- df %>%
+    filter(variable != "median.freq") %>%
+    group_by(frac, variable) %>%
+    group_map(~ggplot(data = .x, aes(x = frag_size, y = delta_cf, color = group)) +
+                geom_line(size = 0.75) +
+                labs(x = "Fragment size (bp)", y = expression(paste(Delta, "CF")), title = .y[[1]]) +
+                scale_color_manual(name = "Group", values = color_palette) +
+                theme(axis.title.x = element_text(size = 10),
+                      axis.title.y = element_text(size = 10),
+                      plot.title = element_text(size = 10)))
+  return(p)
+}
+
+
+# Define color palette
+viridis_palette <- viridis(30)
+show_col(viridis_palette)
+color_ca <- viridis_palette[1]
+color_smn <- viridis_palette[c(1, 16)]
+color_pre <- viridis_palette[c(1, 9, 16, 24)] 
+
+# Generate plot for subgroups 
+p1.delta_cf.ca <- plot_delta_cf(df.delta_cf.ca, color_ca)
+p1.delta_cf.smn <- plot_delta_cf(df.delta_cf.smn, color_smn)
+p1.delta_cf.pre <- plot_delta_cf(df.delta_cf.pre, color_pre)
+
+# Combine plots
+p1.delta_cf.ca.combined <- ggarrange(plotlist = p1.delta_cf.ca, ncol = 3, nrow = 1, labels = c("A", "B", "C"), common.legend = TRUE, legend = "right")
+
+p1.delta_cf.smn.combined <- ggarrange(plotlist = p1.delta_cf.smn, ncol = 3, nrow = 1, labels = c("D", "E", "F"), common.legend = TRUE, legend = "right")
+
+p1.delta_cf.pre.combined <- ggarrange(plotlist = p1.delta_cf.pre, ncol = 3, nrow = 1, labels = c("G", "H", "I"), common.legend = TRUE, legend = "right")
+
+# Combine all and save  
+p1.delta_cf.combined <- ggarrange(p1.delta_cf.ca.combined, p1.delta_cf.smn.combined, p1.delta_cf.pre.combined, ncol = 1, nrow = 3, common.legend = F, legend = "bottom")
+
+imagedir="protocol_ms/data/12-size_distr"
+out.plot <- file.path(imagedir, "SFigure3_delta_cf_240416.tiff")
+ggsave(filename = out.plot, plot = p1.delta_cf.combined, device = "tiff", dpi = 300, width = 8, height = 9, bg = "white")
+ 
+```
+
+
