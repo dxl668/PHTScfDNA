@@ -1,0 +1,132 @@
+---
+title: "Additional cfDNA fragment size analysis"
+author: "Darren Liu"
+date: "2024-04-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA")
+```
+
+# Load library
+```{r libraries}
+library(tidyverse)
+library(ggpubr)
+library(ggplot2)
+library(scales)
+library(viridis)
+library(rstatix)
+```
+
+# Import
+```{r import}
+df.frags <- readRDS("protocol_ms/data/12-size_distr/size_distr.rds")
+```
+
+# Calculate Max Peaks 
+```{r res_peaks}
+
+# Rename group
+df.frags <- df.frags %>%
+  mutate(
+    cancer = case_when(
+      cancer == "Yes" ~ "Cancer",
+      cancer == "No" ~ "No Cancer")
+  )
+
+# Reshape data
+df.frags.long <- df.frags %>%
+  pivot_longer(cols = c(freq, freq.corrected),
+               names_to = "type",
+               values_to = "value") %>%
+  select(id, cancer, group2, group3, frag_size, frac, type, value)
+
+# Calculate max, median, q25, q75 for each sample 
+df.frag.summary <- df.frags.long %>%
+  group_by(id, cancer, group2, group3, frac, type) %>%
+  summarise(max_frag_size = frag_size[which.max(value)],
+            q25_frag_size = quantile(frag_size, 0.25, na.rm = TRUE),
+            q50_frag_size = quantile(frag_size, 0.50, na.rm = TRUE),
+            q75_frag_size = quantile(frag_size, 0.75, na.rm = TRUE)) %>%
+  ungroup()
+ 
+# FUnction to summarize peaks 
+summarize_peaks <- function(df, group_var) {
+  df_grouped <- df %>%
+    group_by(.data[[group_var]], frac, type) %>%
+    summarise(
+      max_peak = median(max_frag_size, na.rm = TRUE),
+      q25 = quantile(max_frag_size, 0.25, na.rm = TRUE),
+      q75 = quantile(max_frag_size, 0.75, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Rename the first grouping variable to 'group'
+  df_renamed <- df_grouped %>%
+    rename(group = 1)
+
+  return(df_renamed)
+}
+
+# Calculate fragment peak statistics
+df.peak.ca <- summarize_peaks(df.frag.summary, "cancer")
+df.peak.smn <- summarize_peaks(df.frag.summary, "group2")
+df.peak.pre <- summarize_peaks(df.frag.summary, "group3")
+
+df.peak.all <- rbind(df.peak.ca, df.peak.smn, df.peak.pre)
+
+# Save CSV
+write.csv(df.peak.all, "protocol_ms/data/12-size_distr/12-size_distr_peaks240404.csv", row.names = FALSE)
+
+```
+
+# Statistical Analysis, Compare Max Peaks - KW test 
+```{r kw_res}
+
+# Function for KW test
+kw_test <- function(df, group_var) {
+  formula <- as.formula(paste("max_frag_size ~", group_var))
+  
+  df %>%
+    group_by(frac, type) %>%
+    kruskal_test(formula) %>%
+    mutate(group = group_var) %>% ungroup %>%
+    relocate(group, .before = frac)
+}
+
+# Perform KW test on subgroups
+kw.res.smn <- kw_test(df.frag.summary, "group2")
+kw.res.pre <- kw_test(df.frag.summary, "group3")
+kw.res.all <- rbind(kw.res.smn, kw.res.pre) # Merge
+
+# Save CSV
+write.csv(kw.res.all, "protocol_ms/data/12-size_distr/kwtest_peaks240404.csv", row.names = FALSE)
+```
+
+# Statistical ANalysis, COmpare Max Peaks - Wilcoxon test
+```{r wilcox_res}
+
+# Function for Wilcoxon test
+pairwise_wilcox_test <- function(df, group_var) {
+  formula <- as.formula(paste("max_frag_size ~", group_var))
+  
+  df %>%
+    group_by(frac, type) %>%
+    wilcox_test(formula) %>%
+    adjust_pvalue(method = "BH") %>% # Apply BH correction
+    add_significance() 
+
+}
+# Perform Wilcoxon on subgroups
+wx.res.ca <- pairwise_wilcox_test(df.frag.summary, "cancer")
+wx.res.smn <- pairwise_wilcox_test(df.frag.summary, "group2")
+wx.res.pre <- pairwise_wilcox_test(df.frag.summary, "group3")
+wx.res.all <- rbind(wx.res.ca, wx.res.smn, wx.res.pre) # Merge
+
+# Save CSV
+write.csv(wx.res.all, "protocol_ms/data/12-size_distr/wxtest_peaks240404.csv", row.names = FALSE)
+```
+
+
