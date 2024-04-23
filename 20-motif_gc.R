@@ -18,10 +18,6 @@ outdir <- options.args[2]
 plotdir <- options.args[3] 
 statdir <- options.args[4]
 
-### For testing on local drive
-setwd("W:/Shared/LRI/Labs/engclab/LAB_MEMBER_CENTRAL/Darren_Liu/3_cf-DNA/protocol_ms")
-motifdir <- "data/08-motif_merge"
-
 ### Functions
 # Add last element of vector in i for GC-correction model 
 seqlast <- function (from, to, by) {
