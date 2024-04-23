@@ -10,7 +10,7 @@
 #SBATCH -n 1
 #SBATCH -c 4
 #SBATCH --mem 128000 # Memory request (128 GB)
-#SBATCH -t 2-2:00 #Maximum execution time (D-HH:MM) - 2 days-2hours
+#SBATCH -t 2-2:00 # Maximum execution time (D-HH:MM)
 #SBATCH -o 05-filter_bedpe.out
 #SBATCH -e 05-filter_bedpe.err
 
