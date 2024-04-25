@@ -9,8 +9,9 @@ The scripts should be ran sequentially as follows:
 	(1) 01-filter_bam.sh 
  		- Apply filtering criteria (i.e., properly paired, no PCR duplicates, no secondary alignments, MAPQ >= 30) using SAMtools 'samtools view' command. 
    	(2) 02-bamtobed.sh
-        	- Convert filtered BAM files to BEDPE format using BEDtools 'bamtobed' command 
-    	(3) 03-filter_frags_gc.sh
+        	- Convert filtered BAM files to BEDPE format using BEDtools 'bamtobed' command.
+	 	- Note: Modified script (02-bamtobed_par.sh) using GNU parallel to parallelize tasks. 
+	(3) 03-filter_frags_gc.sh
 	 	- Obtain fragment GC content using 'bedtools nuc' command.
   		- Note: The ‘bedtools nuc’ does not support BEDPE file format. Thus, to calculate the GC content, we convert the BEDPE file to a BED file, where the entire 			cfDNA fragment is represented using the start position of the first read and the end position of the second read. 
         	- Filter out cfDNA fragments from problematic regions of the genome (i.e., ENCODE blacklisted region and genomic gaps) using 'bedtools substract' command.
