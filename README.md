@@ -1,7 +1,7 @@
 # PHTScfDNA
 [![DOI](https://zenodo.org/badge/642143482.svg)](https://zenodo.org/doi/10.5281/zenodo.10372574)
 
-The repository contains all the bash and R necessary for data processing, analysis, and visualization for each figure of the paper: "Cell-free DNA Fragmentomics and Second Malignant Neoplasm Risk in Patients with PTEN Hamartomat Tumor Syndrome"
+The repository contains all the bash and R scripts neecssary for data processing, analysis, and visualization associated with the paper: "Cell-free DNA Fragmentomics and Second Malignant Neoplasm Risk in Patients with PTEN Hamartomat Tumor Syndrome". 
 
 The scripts should be ran sequentially as follows: 
 
