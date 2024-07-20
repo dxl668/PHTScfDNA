@@ -13,9 +13,8 @@
 #SBATCH -o 01-filter_bam.out
 #SBATCH -e 01-filter_bam.err
 
-# Uncomment line below and add email to recieve notifications
+# Uncomment line below and add email to receive notifications
 # #SBATCH --mail-user=your.email@example.com
-
 
 # Define project directory
 PROJECT_DIR=/home/liud3/beegfs/cfDNA
