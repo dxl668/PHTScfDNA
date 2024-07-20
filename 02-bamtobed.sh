@@ -13,7 +13,7 @@
 #SBATCH -o 02-bamtobed.out
 #SBATCH -e 02-bamtobed.err
 
-# Uncomment line below and add email to recieve notifications
+# Uncomment line below and add email to receive notifications
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
