@@ -1,7 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=LiuD_cfDNA_03-filter_frags_gc
+#SBATCH --job-name=03-filter_frags_gc
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=liud3@ccf.org
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -14,8 +13,11 @@
 #SBATCH -o 03-filter_frags_gc.out
 #SBATCH -e 03-filter_frags_gc.err
 
+# Uncomment line below and add email to receive notifications
+# #SBATCH --mail-user=your.email@example.com
+
 # Define project directory
-PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
+PROJECT_DIR=/user
 cd "$PROJECT_DIR"
 
 # Define directories for input and output files
