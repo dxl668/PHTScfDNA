@@ -1,7 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=LiuD_cfDNA_01-filter_bam
+#SBATCH --job-name=01-filter_bam
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=liud3@ccf.org
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -13,6 +12,9 @@
 #SBATCH -t 2-2:00 # Maximum execution time (D-HH:MM) 
 #SBATCH -o 01-filter_bam.out
 #SBATCH -e 01-filter_bam.err
+
+# Uncomment line below and add email to recieve notifications
+# #SBATCH --mail-user=your.email@example.com
 
 
 # Define project directory
