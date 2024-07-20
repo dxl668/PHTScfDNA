@@ -1,7 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=LiuD_cfDNA_06-endmotif_bed
+#SBATCH --job-name=06-endmotif_bed
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=liud3@ccf.org
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -13,6 +12,9 @@
 #SBATCH -t 2-2:00 # Maximum execution time (D-HH:MM) 
 #SBATCH -o 06-endmotif_bed.out
 #SBATCH -e 06-endmotif_bed.err
+
+# Uncomment line below and add email to receive notifications
+# #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
 PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
