@@ -17,7 +17,7 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
+PROJECT_DIR=/user/project
 cd "$PROJECT_DIR"
 
 # Define directories for input and output files
@@ -26,8 +26,8 @@ bed_dir="${PROJECT_DIR}/02-bamtobed" #BEDPE files
 mkdir -p "$bed_dir" #Create directories if they do not exist
 
 # Load sam/bedtools 
-module load bedtools
-module load samtools 
+module load bedtools/2.29.0
+module load samtools/1.16.1 
 
 # Convert BAM files BEDPE files using bedtools
 for f in $(find $fbam_dir -maxdepth 1 -iname "*.bam" -type f)
