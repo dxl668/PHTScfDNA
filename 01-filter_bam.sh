@@ -17,20 +17,20 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/home/liud3/beegfs/cfDNA
+PROJECT_DIR=/user/project
 cd "$PROJECT_DIR"
 
 # Define/make input/output directories 
-bam_dir="${PROJECT_DIR}/data/files" #Aligned BAM files
-fbam_dir="${PROJECT_DIR}/protocol/01-filter_bam" #Filtered BAM files
-stat_dir="${PROJECT_DIR}/protocol/stat_reports" #Alignment statistics
+bam_dir="${PROJECT_DIR}/bam_files" #Aligned BAM files
+fbam_dir="${PROJECT_DIR}/01-filter_bam" #Filtered BAM files
+stat_dir="${PROJECT_DIR}/stat_reports" #Alignment statistics
 mkdir -p "$bam_dir" "$fbam_dir" "$stat_dir" #Create directories if they do not exist
 
 # Obtain file path for all BAM files 
 bam_files=$(find $bam_dir -maxdepth 1 -name '*.bam')
 
 # Load samtools module
-module load samtools
+module load samtools/1.16.1
 
 # Iterate through each BAM file in directory
 for bam_file in $bam_files; do
