@@ -17,7 +17,7 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/user/project
+PROJECT_DIR=/home/liud5/beegfs/cfDNA/protocol
 cd "$PROJECT_DIR"
 
 # Define directories for input and output files
