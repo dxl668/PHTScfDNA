@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=01-filter_bam
 #SBATCH --mail-type=ALL
+#SBATCH --mail-user=liud5@ccf.org
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
