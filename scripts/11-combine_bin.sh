@@ -1,7 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=LiuD_cfDNA_11-combine_bin
+#SBATCH --job-name=11-combine_bin
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=liud3@ccf.org
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -13,6 +12,9 @@
 #SBATCH -t 2-2:00 #Maximum execution time (D-HH:MM)
 #SBATCH -o 11-combine_bin.out
 #SBATCH -e 11-combine_bin.err
+
+# Uncomment line below and add email to receive notifications
+# #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
 PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
