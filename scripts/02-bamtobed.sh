@@ -1,6 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=02-bamtobed
 #SBATCH --mail-type=ALL
+#SBATCH --mail-user=your.email@example.com
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
