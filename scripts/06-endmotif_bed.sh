@@ -8,8 +8,8 @@
 #SBATCH -p defq
 #SBATCH -n 1
 #SBATCH -c 4
-#SBATCH --mem 128000 # Memory request (128 GB)
-#SBATCH -t 2-2:00 # Maximum execution time (D-HH:MM) 
+#SBATCH --mem 2000 # Memory request (2 GB)
+#SBATCH -t 0-08:00 # Maximum execution time (D-HH:MM)
 #SBATCH -o 06-endmotif_bed.out
 #SBATCH -e 06-endmotif_bed.err
 
@@ -17,7 +17,7 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
+PROJECT_DIR=/user/project
 cd "$PROJECT_DIR"
 
 # Define input/output directories 
