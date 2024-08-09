@@ -8,8 +8,8 @@
 #SBATCH -p defq
 #SBATCH -n 1
 #SBATCH -c 4
-#SBATCH --mem 128000 # Memory request (128 GB)
-#SBATCH -t 2-2:00 # Maximum execution time (D-HH:MM)
+#SBATCH --mem 2000 # Memory request (2 GB)
+#SBATCH -t 0-08:00 # Maximum execution time (D-HH:MM) 
 #SBATCH -o 05-filter_bedpe.out
 #SBATCH -e 05-filter_bedpe.err
 
@@ -17,7 +17,7 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
+PROJECT_DIR=/user/project
 cd "$PROJECT_DIR"
 
 # Define input/output directories 
@@ -27,7 +27,7 @@ out_dir="${PROJECT_DIR}/05-filter_bedpe"
 mkdir -p "$out_dir" #Create directory if they do not exist
 
 # Load bedtools 
-module load bedtools
+module load bedtools/2.29.0
 
 # Iterate through BEDPE files 
 for f in $(find $bedpe_dir -maxdepth 1 -iname "*.bedpe" -type f)
