@@ -30,8 +30,11 @@ mkdir -p "$outdir" "$plotdir" "$statdir" #Create directories if needed
 
 module load R/4.2.3
 
+# Define the path to the R script
+R_SCRIPT="${PROJECT_DIR}/scripts/20-motif_gc.R"
+
 #Run R script 
-Rscript 20-motif_gc.R \
+Rscript "$R_SCRIPT" \
 --motifdir $motifdir \
 --outdir $outdir \
 --plotdir $plotdir \
