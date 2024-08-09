@@ -8,7 +8,7 @@
 #SBATCH -p bigmem
 #SBATCH -n 1
 #SBATCH -c 4
-#SBATCH --mem 128000 # Memory request (128 GB)
+#SBATCH --mem 2000 # Memory request (2 GB)
 #SBATCH -t 2-2:00 # Maximum execution time (D-HH:MM)
 #SBATCH -o 10-frags_gc.out
 #SBATCH -e 10-frags_gc.err
