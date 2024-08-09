@@ -8,8 +8,8 @@
 #SBATCH -p bigmem
 #SBATCH -n 1
 #SBATCH -c 4
-#SBATCH --mem 128000 # Memory request (128 GB)
-#SBATCH -t 2-2:00 #Maximum execution time (D-HH:MM)
+#SBATCH --mem 2000 # Memory request (2 GB)
+#SBATCH -t 0-08:00 # Maximum execution time (D-HH:MM)
 #SBATCH -o 11-combine_bin.out
 #SBATCH -e 11-combine_bin.err
 
@@ -17,7 +17,7 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
+PROJECT_DIR=/user/project
 cd "$PROJECT_DIR"
 
 # Define input/output directories 
@@ -25,7 +25,7 @@ fragdir="${PROJECT_DIR}/10-frags_gc"
 outdir="${PROJECT_DIR}/11-combine_bin"
 mkdir -p "$outdir"  #Create directories if needed
 
-module load R
+module load R/4.2.3
 
 # Initialize R script
 Rscript 11-combine_bin.R \
