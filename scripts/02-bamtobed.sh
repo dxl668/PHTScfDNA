@@ -1,7 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=02-bamtobed
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=liud5@ccf.org
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
@@ -9,8 +8,8 @@
 #SBATCH -p defq
 #SBATCH -n 1
 #SBATCH -c 4
-#SBATCH --mem 128000 # Memory request (128 GB)
-#SBATCH -t 2-2:00 # Maximum execution time (D-HH:MM)
+#SBATCH --mem 2000 # Memory request (2 GB)
+#SBATCH -t 0-08:00 # Maximum execution time (D-HH:MM) 
 #SBATCH -o 02-bamtobed.out
 #SBATCH -e 02-bamtobed.err
 
@@ -18,7 +17,7 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/home/liud5/beegfs/cfDNA/protocol
+PROJECT_DIR=/user/project
 cd "$PROJECT_DIR"
 
 # Define directories for input and output files
@@ -42,4 +41,4 @@ do
   # Calculate insert size and add 'chr' to chromosome field
   awk 'OFS = "\t" {print $1="chr"$1, $2, $3, "chr"$4, $5, $6, $7, $8, $9, $10, $6-$2}' - > $bed_dir/${id}.bedpe 
 done 
-echo Done converting BAM files to BEDPE files  
+echo Done converting BAM files to BEDPE files
