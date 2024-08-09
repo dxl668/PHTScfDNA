@@ -27,8 +27,11 @@ mkdir -p "$outdir"  #Create directories if needed
 
 module load R/4.2.3
 
+# Define the path to the R script
+R_SCRIPT="${PROJECT_DIR}/scripts/11-combine_bin.R"
+
 # Initialize R script
-Rscript 11-combine_bin.R \
+Rscript "$R_SCRIPT"  \
 --fragdir $fragdir \
 --outdir $outdir
 echo Done combining end motif data!
