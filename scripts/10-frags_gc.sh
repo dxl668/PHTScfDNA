@@ -17,7 +17,7 @@
 # #SBATCH --mail-user=your.email@example.com
 
 # Define project directory
-PROJECT_DIR=/home/liud3/beegfs/cfDNA/protocol
+PROJECT_DIR=/user/project
 cd "$PROJECT_DIR"
 
 # Define input/output directories 
@@ -28,7 +28,7 @@ statdir="${PROJECT_DIR}/10-frags_gc_stats" #Filtering statistics
 
 mkdir -p "$outdir" "$plotdir" "$statdir" #Create directories if needed
 
-module load R
+module load R/4.2.3
 
 # Run R script 
 Rscript 10-frags_gc.R \
