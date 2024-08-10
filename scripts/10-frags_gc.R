@@ -149,7 +149,7 @@ for(x in 1:length(files)) {
     print(frac[i]) 
     out.gc_plot <- file.path(plotdir, paste0(id[x], "/", id[[x]], frac[i], "_5mb_frags_gc.png"))
     print(out.gc_plot)
-    ggsave(filename = out.gc_plot, plot = gc.bias.overall[[i]], width = 7, height = 5, create.dir = TRUE)
+    ggsave(filename = out.gc_plot, plot = gc.bias.overall[[i]], width = 7, height = 5)
   }
   
   
