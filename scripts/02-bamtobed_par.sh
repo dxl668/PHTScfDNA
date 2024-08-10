@@ -8,7 +8,7 @@
 #SBATCH -p defq
 #SBATCH -n 1
 #SBATCH -c 4
-#SBATCH --mem 2000 # Memory request (2 GB)
+#SBATCH --mem 4000 # Memory request (4 GB)
 #SBATCH -t 0-08:00 # Maximum execution time (D-HH:MM)
 #SBATCH -o 02-bamtobed_par.out
 #SBATCH -e 02-bamtobed_par.err
