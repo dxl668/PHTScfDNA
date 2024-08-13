@@ -8,8 +8,8 @@
 #SBATCH -p defq
 #SBATCH -n 1
 #SBATCH -c 4
-#SBATCH --mem 4000 # Memory request (4 GB)
-#SBATCH -t 0-08:00 # Maximum execution time (D-HH:MM) 
+#SBATCH --mem 6000 # Memory request (6 GB)
+#SBATCH -t 0-12:00 # Maximum execution time (D-HH:MM) 
 #SBATCH -o 03-filter_frags_gc.out
 #SBATCH -e 03-filter_frags_gc.err
 
